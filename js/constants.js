@@ -18,10 +18,15 @@ export const COLORS = {
   text: '#fdf6e3',
   textDark: '#2c3e50',
   buttonBg: '#5a3a1a',
+  buttonBgActive: '#7a5a3a',
   buttonText: '#fdf6e3',
   winParticle1: '#ffd700',
   winParticle2: '#ff6b6b',
   winParticle3: '#51cf66',
+  modeBg: 'rgba(0,0,0,0.85)',
+  modeButton: '#4a6a3a',
+  modeButtonActive: '#6a8a5a',
+  modeButtonText: '#fdf6e3',
 };
 
 export const SUITS = ['♠', '♥', '♦', '♣'];
@@ -36,7 +41,7 @@ export const CARD_OVERLAP_FACEDOWN = 0.18;
 export const CARD_OVERLAP_FACEUP = 0.30;
 export const PILE_GAP_RATIO = 0.12;
 export const TOP_MARGIN_RATIO = 0.08;
-export const FONT_RATIO = 0.28; // card value font size relative to card width
+export const FONT_RATIO = 0.28;
 export const SUIT_FONT_RATIO = 0.22;
 export const CENTER_SUIT_RATIO = 0.55;
 
@@ -49,3 +54,19 @@ export const BOUNCE_OVERSHOOT = 1.15;
 // Game
 export const TABLEAU_COLS = 7;
 export const FOUNDATION_COUNT = 4;
+
+// Drop zone expansion (in pixels, added to each side of the card)
+export const DROP_ZONE_EXPAND_X = 12;
+export const DROP_ZONE_EXPAND_Y = 20;
+
+// Game modes
+export const DRAW_MODES = [
+  { id: 'draw1', label: 'Draw 1', drawCount: 1 },
+  { id: 'draw3', label: 'Draw 3', drawCount: 3 },
+];
+
+export const RECYCLE_MODES = [
+  { id: 'unlimited', label: 'Unlimited', passes: Infinity },
+  { id: 'pass3', label: '3 Passes', passes: 3 },
+  { id: 'pass1', label: '1 Pass', passes: 1 },
+];

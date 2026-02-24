@@ -5,10 +5,12 @@ import { initRenderer, recalcLayout, getLayout, clear, drawCardBack, drawCardFac
 import { initInput, getDragState } from './input.js';
 import { updateTweens, hasTweens } from './tween.js';
 import { createGameState, dealStock, moveCards, findFoundationFor, canPlaceOnTableau,
-  canPlaceOnFoundation, isWon, allCardsFaceUp, getAutoCompleteCard, undo,
+  canPlaceOnFoundation, isWon, allCardsFaceUp, getAutoCompleteCard, undo, canRecycleStock,
   serializeState, deserializeState } from './game.js';
-import { loadStats, saveStats, saveGameState, loadGameState, clearGameState } from './storage.js';
-import { TABLEAU_COLS, FOUNDATION_COUNT, AUTO_COMPLETE_DELAY } from './constants.js';
+import { loadStats, saveStats, saveGameState, loadGameState, clearGameState,
+  loadModeSettings, saveModeSettings } from './storage.js';
+import { TABLEAU_COLS, FOUNDATION_COUNT, AUTO_COMPLETE_DELAY, COLORS,
+  DRAW_MODES, RECYCLE_MODES } from './constants.js';
 
 const canvas = document.getElementById('game');
 let state = null;
@@ -16,14 +18,17 @@ let stats = loadStats();
 let autoCompleting = false;
 let autoCompleteTimer = 0;
 let showStats = false;
+let showModeSelect = false;
 let lastTime = 0;
+
+// Mode settings
+let modeSettings = loadModeSettings();
 
 function init() {
   initRenderer(canvas);
   initInput(canvas, handleAction);
   window.addEventListener('resize', () => { recalcLayout(); });
 
-  // Try to restore saved game
   const saved = loadGameState();
   if (saved) {
     state = deserializeState(saved);
@@ -40,16 +45,56 @@ function newGame(countPrevious = true) {
     stats.currentStreak = 0;
     saveStats(stats);
   }
-  state = createGameState();
+  const drawMode = DRAW_MODES.find(m => m.id === modeSettings.drawMode) || DRAW_MODES[0];
+  const recycleMode = RECYCLE_MODES.find(m => m.id === modeSettings.recycleMode) || RECYCLE_MODES[0];
+  state = createGameState(drawMode.drawCount, recycleMode.passes);
   window.__gameState = state;
   autoCompleting = false;
   showStats = false;
+  showModeSelect = false;
   clearGameState();
 }
 
 function handleAction(action) {
-  if (state.won && action.type !== 'button') return;
-  if (autoCompleting && action.type !== 'button') return;
+  // Allow closing overlays regardless of game state
+  if (action.type === 'button') {
+    if (action.button === 'stats') {
+      showStats = !showStats;
+      showModeSelect = false;
+      return;
+    }
+    if (action.button === 'mode') {
+      showModeSelect = !showModeSelect;
+      showStats = false;
+      return;
+    }
+    if (action.button === 'undo') { undo(state); saveGameState(serializeState(state)); return; }
+    if (action.button === 'new') { newGame(true); return; }
+    if (action.button === 'closeStats') { showStats = false; return; }
+    if (action.button === 'closeMode') { showModeSelect = false; return; }
+    if (action.button === 'winNewGame') { newGame(false); return; }
+    // Mode selection buttons
+    if (action.button.startsWith('draw:')) {
+      modeSettings.drawMode = action.button.split(':')[1];
+      saveModeSettings(modeSettings);
+      return;
+    }
+    if (action.button.startsWith('recycle:')) {
+      modeSettings.recycleMode = action.button.split(':')[1];
+      saveModeSettings(modeSettings);
+      return;
+    }
+    if (action.button === 'applyMode') {
+      showModeSelect = false;
+      newGame(true);
+      return;
+    }
+  }
+
+  // Overlays block game interaction
+  if (showStats || showModeSelect) return;
+  if (state.won) return;
+  if (autoCompleting) return;
 
   switch (action.type) {
     case 'tapStock':
@@ -57,14 +102,12 @@ function handleAction(action) {
       break;
 
     case 'tap': {
-      // Tap to auto-move to foundation
       const card = getCardFromHit(action);
       if (!card) break;
       const fi = findFoundationFor(card, state.foundations);
       if (fi >= 0) {
         moveFromHit(action, 'foundation', fi);
       } else if (action.source === 'waste') {
-        // Try tableau
         for (let i = 0; i < TABLEAU_COLS; i++) {
           if (canPlaceOnTableau(card, state.tableau[i])) {
             moveFromHit(action, 'tableau', i);
@@ -89,12 +132,6 @@ function handleAction(action) {
       moveFromHit(from, to.source, to.colIndex);
       break;
     }
-
-    case 'button':
-      if (action.button === 'undo') undo(state);
-      if (action.button === 'new') newGame(true);
-      if (action.button === 'stats') showStats = !showStats;
-      break;
   }
 
   // Check win
@@ -142,8 +179,7 @@ function loop(timestamp) {
   const dt = lastTime ? timestamp - lastTime : 16;
   lastTime = timestamp;
 
-  // Update timer
-  if (!state.won && state.moves > 0) {
+  if (!state.won && state.moves > 0 && !showStats && !showModeSelect) {
     state.elapsed += dt;
   }
 
@@ -188,15 +224,16 @@ function render(dt) {
   const l = getLayout();
   clear();
 
-  // Draw buttons (top bar)
+  // Draw top bar buttons
   const btnW = 60, btnH = 28, btnFS = 12;
   drawButton(8, l.buttonY, btnW + 10, btnH, '📊 Stats', btnFS);
+  drawButton(8 + btnW + 10 + 6, l.buttonY, btnW + 10, btnH, '🎮 Mode', btnFS);
 
-  // Timer and moves
+  // Timer and moves (centered)
   const secs = Math.floor(state.elapsed / 1000);
   const mins = Math.floor(secs / 60);
   const timeStr = `${mins}:${(secs % 60).toString().padStart(2, '0')}`;
-  drawText(l.w / 2, l.buttonY + btnH / 2, `⏱ ${timeStr}  |  Moves: ${state.moves}`, 13, 'center');
+  drawText(l.w / 2, l.buttonY + btnH / 2, `⏱ ${timeStr}  |  Moves: ${state.moves}`, 11, 'center');
 
   drawButton(l.w - btnW * 2 - 16, l.buttonY, btnW, btnH, 'Undo', btnFS);
   drawButton(l.w - btnW - 8, l.buttonY, btnW, btnH, 'New', btnFS);
@@ -204,15 +241,37 @@ function render(dt) {
   // Stock
   if (state.stock.length > 0) {
     drawCardBack(l.stockX, l.stockY);
-    // Card count
     drawText(l.stockX + l.cardW / 2, l.stockY + l.cardH + 12, `${state.stock.length}`, 11, 'center');
   } else {
-    drawEmptyPile(l.stockX, l.stockY, '↻');
+    const canRecycle = canRecycleStock(state);
+    drawEmptyPile(l.stockX, l.stockY, canRecycle ? '↻' : '✕');
+    // Show pass count if limited
+    if (state.maxPasses !== Infinity) {
+      drawText(l.stockX + l.cardW / 2, l.stockY + l.cardH + 12,
+        `${state.stockPasses}/${state.maxPasses}`, 10, 'center');
+    }
   }
 
-  // Waste
+  // Waste — fan cards in draw-3 mode
   if (state.waste.length > 0) {
-    drawCardFace(l.wasteX, l.wasteY, state.waste[state.waste.length - 1]);
+    if (state.drawCount > 1) {
+      // Show up to 3 fanned waste cards
+      const fanCount = Math.min(state.drawCount, state.waste.length);
+      const fanOffset = 15;
+      for (let i = fanCount - 1; i >= 0; i--) {
+        const cardIdx = state.waste.length - 1 - i;
+        if (cardIdx >= 0) {
+          const ox = (fanCount - 1 - i) * fanOffset;
+          if (i === 0) {
+            drawCardFace(l.wasteX + ox, l.wasteY, state.waste[cardIdx]);
+          } else {
+            drawCardFace(l.wasteX + ox, l.wasteY, state.waste[cardIdx], 0.9);
+          }
+        }
+      }
+    } else {
+      drawCardFace(l.wasteX, l.wasteY, state.waste[state.waste.length - 1]);
+    }
   } else {
     drawEmptyPile(l.wasteX, l.wasteY);
   }
@@ -231,7 +290,6 @@ function render(dt) {
   // Drop zone highlights during drag
   const drag = getDragState();
   if (drag && drag.dragging) {
-    // Highlight valid drops
     const card = getCardFromHit(drag);
     if (card) {
       for (let i = 0; i < FOUNDATION_COUNT; i++) {
@@ -261,9 +319,7 @@ function render(dt) {
       continue;
     }
     for (let i = 0; i < tcol.length; i++) {
-      // Skip if being dragged
       if (drag && drag.dragging && drag.source === 'tableau' && drag.colIndex === col && i >= drag.cardIndex) continue;
-
       const pos = getCardPosition(state, 'tableau', col, i);
       const card = tcol[i];
       if (card.faceUp) {
@@ -278,7 +334,6 @@ function render(dt) {
   if (drag && drag.dragging) {
     const offsetX = drag.currentX - drag.startX;
     const offsetY = drag.currentY - drag.startY;
-
     if (drag.source === 'tableau') {
       const tcol = state.tableau[drag.colIndex];
       for (let i = drag.cardIndex; i < tcol.length; i++) {
@@ -295,7 +350,7 @@ function render(dt) {
     }
   }
 
-  // Win particles
+  // Win screen
   if (state.won) {
     updateAndDrawParticles(dt);
     drawText(l.w / 2, l.h / 2 - 40, '🎉 You Won! 🎉', 28, 'center');
@@ -304,20 +359,20 @@ function render(dt) {
   }
 
   // Stats overlay
-  if (showStats) {
-    drawStatsOverlay(l);
-  }
+  if (showStats) drawStatsOverlay(l);
+
+  // Mode select overlay
+  if (showModeSelect) drawModeOverlay(l);
 }
 
 function drawStatsOverlay(l) {
-  // Semi-transparent background
   const ctx = canvas.getContext('2d');
-  ctx.fillStyle = 'rgba(0,0,0,0.75)';
+  ctx.fillStyle = COLORS.modeBg;
   ctx.fillRect(0, 0, l.w, l.h);
 
   const cx = l.w / 2;
-  let y = l.h * 0.2;
-  const gap = 30;
+  let y = l.h * 0.15;
+  const gap = 32;
   drawText(cx, y, '📊 Statistics', 24, 'center'); y += gap * 1.5;
   drawText(cx, y, `Games Played: ${stats.gamesPlayed}`, 18, 'center'); y += gap;
   drawText(cx, y, `Games Won: ${stats.gamesWon}`, 18, 'center'); y += gap;
@@ -327,34 +382,184 @@ function drawStatsOverlay(l) {
   drawText(cx, y, `Best Streak: ${stats.bestStreak}`, 18, 'center'); y += gap;
   const best = stats.bestTime ? `${Math.floor(stats.bestTime / 1000)}s` : '--';
   drawText(cx, y, `Best Time: ${best}`, 18, 'center'); y += gap * 1.5;
-  drawButton(cx - 40, y, 80, 32, 'Close', 14);
+  drawButton(cx - 50, y, 100, 36, 'Close', 14);
 }
 
-// Handle stats button and win new game button clicks via the action system
-const origHandleAction = handleAction;
-// Patch: the stats button click
-document.getElementById('game').addEventListener('click', (e) => {
+function drawModeOverlay(l) {
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = COLORS.modeBg;
+  ctx.fillRect(0, 0, l.w, l.h);
+
+  const cx = l.w / 2;
+  let y = l.h * 0.12;
+  const gap = 28;
+
+  drawText(cx, y, '🎮 Game Mode', 24, 'center'); y += gap * 1.5;
+
+  // Draw count
+  drawText(cx, y, 'Draw Count', 16, 'center'); y += gap;
+  const drawBtnW = 80, drawBtnH = 34;
+  const drawTotalW = DRAW_MODES.length * drawBtnW + (DRAW_MODES.length - 1) * 8;
+  let dx = cx - drawTotalW / 2;
+  for (const mode of DRAW_MODES) {
+    const isActive = modeSettings.drawMode === mode.id;
+    drawModeButton(dx, y, drawBtnW, drawBtnH, mode.label, isActive);
+    dx += drawBtnW + 8;
+  }
+  y += drawBtnH + gap;
+
+  // Deck recycling
+  drawText(cx, y, 'Deck Passes', 16, 'center'); y += gap;
+  const recBtnW = 90, recBtnH = 34;
+  const recTotalW = RECYCLE_MODES.length * recBtnW + (RECYCLE_MODES.length - 1) * 8;
+  let rx = cx - recTotalW / 2;
+  for (const mode of RECYCLE_MODES) {
+    const isActive = modeSettings.recycleMode === mode.id;
+    drawModeButton(rx, y, recBtnW, recBtnH, mode.label, isActive);
+    rx += recBtnW + 8;
+  }
+  y += recBtnH + gap;
+
+  // Current mode description
+  const drawMode = DRAW_MODES.find(m => m.id === modeSettings.drawMode) || DRAW_MODES[0];
+  const recycleMode = RECYCLE_MODES.find(m => m.id === modeSettings.recycleMode) || RECYCLE_MODES[0];
+  drawText(cx, y, `${drawMode.label} · ${recycleMode.label} passes`, 14, 'center');
+  y += gap * 1.2;
+
+  drawText(cx, y, '⚠️ Starting new game applies changes', 12, 'center');
+  y += gap;
+
+  // Buttons
+  const btnW = 100, btnGap = 12;
+  drawButton(cx - btnW - btnGap / 2, y, btnW, 36, '▶ New Game', 13);
+  drawButton(cx + btnGap / 2, y, btnW, 36, 'Close', 13);
+}
+
+function drawModeButton(x, y, w, h, text, active) {
+  const ctx = canvas.getContext('2d');
+  const r = 6;
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+  ctx.fillStyle = active ? COLORS.modeButtonActive : COLORS.modeButton;
+  ctx.fill();
+  if (active) {
+    ctx.strokeStyle = '#ffd700';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+  ctx.fillStyle = COLORS.modeButtonText;
+  ctx.font = `bold 13px Georgia, serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, x + w / 2, y + h / 2);
+}
+
+// Handle overlay button clicks — integrated into input system
+// The stats close, mode buttons, and win new-game buttons are handled
+// through the input hitTest via button sources, routed to handleAction.
+
+// We need to extend the hitTest in input.js to detect overlay buttons.
+// Instead, we add a global click handler that detects overlay-specific clicks.
+canvas.addEventListener('click', overlayClickHandler);
+canvas.addEventListener('touchend', (e) => {
+  // Use a small delay to avoid double-firing with the input system
+  const t = e.changedTouches[0];
+  // overlayClickHandler is handled via the input system now
+});
+
+function overlayClickHandler(e) {
   const l = getLayout();
   const x = e.clientX, y = e.clientY;
-  // Stats button
-  if (x >= 8 && x <= 78 && y >= l.buttonY && y <= l.buttonY + 28) {
-    showStats = !showStats;
-  }
-  // Stats close
+
   if (showStats) {
     const cx = l.w / 2;
-    const closeY = l.h * 0.2 + 30 * 7.5;
-    if (x >= cx - 40 && x <= cx + 40 && y >= closeY && y <= closeY + 32) {
+    const closeY = l.h * 0.15 + 32 * 8.5;
+    if (inRect(x, y, cx - 50, closeY, 100, 36)) {
       showStats = false;
+      e.stopPropagation();
     }
+    return;
   }
-  // Win new game button
-  if (state.won) {
+
+  if (showModeSelect) {
     const cx = l.w / 2;
-    if (x >= cx - 50 && x <= cx + 50 && y >= l.h / 2 + 30 && y <= l.h / 2 + 66) {
+    const gap = 28;
+    let my = l.h * 0.12 + gap * 1.5;
+
+    // Draw mode buttons
+    my += gap; // "Draw Count" label
+    const drawBtnW = 80, drawBtnH = 34;
+    const drawTotalW = DRAW_MODES.length * drawBtnW + (DRAW_MODES.length - 1) * 8;
+    let dx = cx - drawTotalW / 2;
+    for (const mode of DRAW_MODES) {
+      if (inRect(x, y, dx, my, drawBtnW, drawBtnH)) {
+        modeSettings.drawMode = mode.id;
+        saveModeSettings(modeSettings);
+        e.stopPropagation();
+        return;
+      }
+      dx += drawBtnW + 8;
+    }
+    my += drawBtnH + gap;
+
+    // Recycle mode buttons
+    my += gap; // "Deck Passes" label
+    const recBtnW = 90, recBtnH = 34;
+    const recTotalW = RECYCLE_MODES.length * recBtnW + (RECYCLE_MODES.length - 1) * 8;
+    let rx = cx - recTotalW / 2;
+    for (const mode of RECYCLE_MODES) {
+      if (inRect(x, y, rx, my, recBtnW, recBtnH)) {
+        modeSettings.recycleMode = mode.id;
+        saveModeSettings(modeSettings);
+        e.stopPropagation();
+        return;
+      }
+      rx += recBtnW + 8;
+    }
+    my += recBtnH + gap;
+
+    // Description line
+    my += gap * 1.2;
+    // Warning line
+    my += gap;
+
+    // New Game / Close buttons
+    const btnW = 100, btnGap = 12;
+    if (inRect(x, y, cx - btnW - btnGap / 2, my, btnW, 36)) {
+      showModeSelect = false;
+      newGame(true);
+      e.stopPropagation();
+      return;
+    }
+    if (inRect(x, y, cx + btnGap / 2, my, btnW, 36)) {
+      showModeSelect = false;
+      e.stopPropagation();
+      return;
+    }
+    return;
+  }
+
+  // Win new game button
+  if (state && state.won) {
+    const cx = l.w / 2;
+    if (inRect(x, y, cx - 50, l.h / 2 + 30, 100, 36)) {
       newGame(false);
+      e.stopPropagation();
     }
   }
-});
+}
+
+function inRect(px, py, rx, ry, rw, rh) {
+  return px >= rx && px <= rx + rw && py >= ry && py <= ry + rh;
+}
 
 init();
