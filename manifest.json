@@ -1,0 +1,11 @@
+{
+  "name": "Cozy Solitaire",
+  "short_name": "Solitaire",
+  "description": "A warm, cozy Klondike Solitaire game",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#2d5a3d",
+  "theme_color": "#2d5a3d",
+  "icons": []
+}
