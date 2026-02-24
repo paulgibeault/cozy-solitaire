@@ -2,7 +2,7 @@
 import { createDeck, shuffleDeck } from './cards.js';
 import { TABLEAU_COLS, FOUNDATION_COUNT, VALUE_ORDER } from './constants.js';
 
-export function createGameState() {
+export function createGameState(drawCount = 1, maxPasses = Infinity) {
   const deck = shuffleDeck(createDeck());
   const tableau = Array.from({ length: TABLEAU_COLS }, () => []);
   const foundations = Array.from({ length: FOUNDATION_COUNT }, () => []);
@@ -32,7 +32,10 @@ export function createGameState() {
     startTime: Date.now(),
     elapsed: 0,
     won: false,
-    history: [], // undo stack
+    history: [],
+    drawCount,
+    maxPasses,
+    stockPasses: 0, // how many times we've recycled
   };
 }
 
@@ -54,7 +57,6 @@ export function findFoundationFor(card, foundations) {
   for (let i = 0; i < foundations.length; i++) {
     if (canPlaceOnFoundation(card, foundations[i])) return i;
   }
-  // Also check empty foundations for aces
   if (card.value === 'A') {
     for (let i = 0; i < foundations.length; i++) {
       if (foundations[i].length === 0) return i;
@@ -76,12 +78,9 @@ export function allCardsFaceUp(state) {
   return state.stock.length === 0 && state.waste.length === 0;
 }
 
-// Auto-complete: can we safely send the lowest available cards to foundations?
 export function getAutoCompleteCard(state) {
-  // Find the minimum order on all foundations
   const minFound = Math.min(...state.foundations.map(f => f.length === 0 ? 0 : f[f.length - 1].order));
 
-  // Check waste top
   if (state.waste.length > 0) {
     const card = state.waste[state.waste.length - 1];
     const fi = findFoundationFor(card, state.foundations);
@@ -89,7 +88,6 @@ export function getAutoCompleteCard(state) {
       return { source: 'waste', card, foundationIndex: fi };
     }
   }
-  // Check tableau tops
   for (let i = 0; i < state.tableau.length; i++) {
     const col = state.tableau[i];
     if (col.length === 0) continue;
@@ -103,7 +101,6 @@ export function getAutoCompleteCard(state) {
   return null;
 }
 
-// Save a snapshot for undo
 export function saveUndo(state) {
   state.history.push({
     tableau: state.tableau.map(c => c.map(card => ({ ...card }))),
@@ -111,8 +108,8 @@ export function saveUndo(state) {
     stock: state.stock.map(card => ({ ...card })),
     waste: state.waste.map(card => ({ ...card })),
     moves: state.moves,
+    stockPasses: state.stockPasses,
   });
-  // Limit history
   if (state.history.length > 200) state.history.shift();
 }
 
@@ -124,28 +121,46 @@ export function undo(state) {
   state.stock = prev.stock;
   state.waste = prev.waste;
   state.moves = prev.moves;
+  state.stockPasses = prev.stockPasses;
   return true;
 }
 
-// Deal from stock to waste
+// Deal from stock to waste (supports draw 1 or draw 3)
 export function dealStock(state) {
   saveUndo(state);
   if (state.stock.length === 0) {
     // Recycle waste to stock
     if (state.waste.length === 0) { state.history.pop(); return null; }
+    // Check pass limit
+    if (state.maxPasses !== Infinity && state.stockPasses >= state.maxPasses) {
+      state.history.pop();
+      return null; // No more passes allowed
+    }
     state.stock = state.waste.reverse().map(c => ({ ...c, faceUp: false }));
     state.waste = [];
+    state.stockPasses++;
     state.moves++;
     return 'recycle';
   }
-  const card = state.stock.pop();
-  card.faceUp = true;
-  state.waste.push(card);
+  // Draw N cards
+  const count = Math.min(state.drawCount, state.stock.length);
+  for (let i = 0; i < count; i++) {
+    const card = state.stock.pop();
+    card.faceUp = true;
+    state.waste.push(card);
+  }
   state.moves++;
-  return card;
+  return 'dealt';
 }
 
-// Move card(s) from one place to another
+// Check if stock can be recycled
+export function canRecycleStock(state) {
+  if (state.stock.length > 0) return true; // Can still draw
+  if (state.waste.length === 0) return false;
+  if (state.maxPasses === Infinity) return true;
+  return state.stockPasses < state.maxPasses;
+}
+
 export function moveCards(state, fromType, fromIndex, cardIndex, toType, toIndex) {
   let cards;
   if (fromType === 'tableau') {
@@ -165,7 +180,6 @@ export function moveCards(state, fromType, fromIndex, cardIndex, toType, toIndex
 
   if (toType === 'tableau') {
     if (!canPlaceOnTableau(card, state.tableau[toIndex])) return false;
-    if (cards.length > 1 && toType === 'foundation') return false;
   } else if (toType === 'foundation') {
     if (cards.length > 1) return false;
     if (!canPlaceOnFoundation(card, state.foundations[toIndex])) return false;
@@ -173,10 +187,8 @@ export function moveCards(state, fromType, fromIndex, cardIndex, toType, toIndex
 
   saveUndo(state);
 
-  // Remove from source
   if (fromType === 'tableau') {
     state.tableau[fromIndex].splice(cardIndex);
-    // Flip new top card
     const col = state.tableau[fromIndex];
     if (col.length > 0 && !col[col.length - 1].faceUp) {
       col[col.length - 1].faceUp = true;
@@ -187,7 +199,6 @@ export function moveCards(state, fromType, fromIndex, cardIndex, toType, toIndex
     state.foundations[fromIndex].pop();
   }
 
-  // Add to destination
   if (toType === 'tableau') {
     state.tableau[toIndex].push(...cards);
   } else if (toType === 'foundation') {
@@ -198,7 +209,6 @@ export function moveCards(state, fromType, fromIndex, cardIndex, toType, toIndex
   return true;
 }
 
-// Serialize state for localStorage (strip history to save space)
 export function serializeState(state) {
   return {
     tableau: state.tableau,
@@ -208,12 +218,18 @@ export function serializeState(state) {
     moves: state.moves,
     elapsed: state.elapsed,
     startTime: state.startTime,
+    drawCount: state.drawCount,
+    maxPasses: state.maxPasses,
+    stockPasses: state.stockPasses,
   };
 }
 
 export function deserializeState(data) {
   return {
     ...data,
+    drawCount: data.drawCount || 1,
+    maxPasses: data.maxPasses ?? Infinity,
+    stockPasses: data.stockPasses || 0,
     won: false,
     history: [],
   };
