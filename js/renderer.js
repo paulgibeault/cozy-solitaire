@@ -25,12 +25,46 @@ export function recalcLayout() {
   // Calculate card size to fit 7 columns + gaps
   const totalCols = TABLEAU_COLS;
   const gapCount = totalCols + 1;
-  const cardW = Math.floor((w - gapCount * 6) / totalCols * 0.92);
+  
+  // Height constraint — solve for the largest card that fits a full tableau column.
+  // Layout: buttonBar (~40px) + topMargin + cardH + gap*1.5 = tableauY
+  //         tableauY + worstPileH <= h - bottomPad
+  // Worst-case Klondike pile: 6 face-down + 12 face-up overlaps + 1 full card
+  //   worstPileH = cardH * (6*CARD_OVERLAP_FACEDOWN + 12*CARD_OVERLAP_FACEUP + 1)
+  // Solve for cardH:
+  //   cardH*(1 + CARD_ASPECT + ...) + gap*2.5 + 40 <= h - 16
+  const bottomPad = 16;
+  const buttonBar = 40;
+  // tableauY = buttonBar + topMarginRatio*cardH/CARD_ASPECT * ... simplify: let's iterate
+  // topMargin = h * TOP_MARGIN_RATIO, tableauY = topMargin + cardH + gap*1.5
+  // Pile height factor: 6 face-down dealt cards + 7 face-up (typical game depth) + 1 full card
+  const pileHeightFactor = 6 * CARD_OVERLAP_FACEDOWN + 7 * CARD_OVERLAP_FACEUP + 1;
+  // Available vertical space for tableau
+  const availH = h - buttonBar - bottomPad;
+  // topMargin + cardH (top row) + gap*1.5 (inter-row gap) + pileHeightFactor * cardH <= availH
+  // h*TOP_MARGIN_RATIO + cardH*(1 + pileHeightFactor) + gap*1.5 <= availH
+  // Approximate gap as 6px (will be recalculated anyway).
+  const approxGap = 6;
+  const topMarginPx = h * TOP_MARGIN_RATIO;
+  const heightCardW = Math.floor(
+    (availH - topMarginPx - approxGap * 1.5) / (1 + pileHeightFactor) / CARD_ASPECT
+  );
+  
+  // Width constraint: fit 7 columns across the screen
+  const maxW = Math.floor((w - gapCount * 6) / totalCols * 0.92);
+
+  // Final dimensions: take the smaller of width-constrained and height-constrained card sizes
+  const cardW = Math.min(maxW, heightCardW);
   const cardH = Math.floor(cardW * CARD_ASPECT);
-  const gap = Math.floor((w - cardW * totalCols) / (totalCols + 1));
+  // Gap: proportional to card, but capped so columns don't spread apart on wide screens
+  const idealGap = Math.floor((w - cardW * totalCols) / (totalCols + 1));
+  const gap = Math.min(idealGap, Math.round(cardW * 0.18));
+  // Remaining space becomes equal side margins to center the tableau
+  const tableauTotalW = cardW * totalCols + gap * (totalCols - 1);
+  const sideMargin = Math.floor((w - tableauTotalW) / 2);
 
   layout = {
-    w, h, cardW, cardH, gap, dpr,
+    w, h, cardW, cardH, gap, sideMargin, dpr,
     radius: Math.round(cardW * CARD_RADIUS_RATIO),
     overlapDown: Math.round(cardH * CARD_OVERLAP_FACEDOWN),
     overlapUp: Math.round(cardH * CARD_OVERLAP_FACEUP),
@@ -47,27 +81,28 @@ export function recalcLayout() {
     buttonY: 0,
   };
 
-  // Top row: stock, waste, gap, 4 foundations
+  // Top row: stock at left margin, waste next to it, foundations flush right margin
   const topY = layout.topMargin;
-  layout.stockX = gap;
+  layout.stockX = sideMargin;
   layout.stockY = topY;
-  layout.wasteX = gap + cardW + gap;
+  layout.wasteX = sideMargin + cardW + gap;
   layout.wasteY = topY;
   layout.foundationY = topY;
   layout.foundationX = [];
   for (let i = 0; i < FOUNDATION_COUNT; i++) {
-    layout.foundationX.push(w - (FOUNDATION_COUNT - i) * (cardW + gap) + gap);
+    layout.foundationX.push(sideMargin + tableauTotalW - (FOUNDATION_COUNT - i) * cardW - (FOUNDATION_COUNT - i - 1) * gap);
   }
 
   // Tableau row
   layout.tableauY = topY + cardH + Math.round(gap * 1.5);
   layout.tableauX = [];
   for (let i = 0; i < TABLEAU_COLS; i++) {
-    layout.tableauX.push(gap + i * (cardW + gap));
+    layout.tableauX.push(sideMargin + i * (cardW + gap));
   }
 
   // Buttons area
   layout.buttonY = 4;
+
 
   return layout;
 }

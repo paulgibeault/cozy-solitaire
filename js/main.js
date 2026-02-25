@@ -41,7 +41,9 @@ function init() {
 }
 
 function newGame(countPrevious = true) {
-  if (countPrevious && state && !state.won) {
+  if (countPrevious && state && !state.won && state.moves > 0) {
+    stats.gamesPlayed++;
+    // We do not increment gamesWon
     stats.currentStreak = 0;
     saveStats(stats);
   }
@@ -471,9 +473,17 @@ function drawModeButton(x, y, w, h, text, active) {
 // Instead, we add a global click handler that detects overlay-specific clicks.
 canvas.addEventListener('click', overlayClickHandler);
 canvas.addEventListener('touchend', (e) => {
-  // Use a small delay to avoid double-firing with the input system
-  const t = e.changedTouches[0];
-  // overlayClickHandler is handled via the input system now
+  if (showStats || showModeSelect || (state && state.won)) {
+    const t = e.changedTouches[0];
+    overlayClickHandler({
+      clientX: t.clientX,
+      clientY: t.clientY,
+      stopPropagation: () => {
+        e.stopPropagation();
+        if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+      }
+    });
+  }
 });
 
 function overlayClickHandler(e) {
