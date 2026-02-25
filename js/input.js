@@ -3,13 +3,15 @@ import { getLayout, getCardPosition } from './renderer.js';
 import { TABLEAU_COLS, FOUNDATION_COUNT, DROP_ZONE_EXPAND_X, DROP_ZONE_EXPAND_Y } from './constants.js';
 
 let onAction = null;
+let onMove = null;   // called whenever drag position changes, to trigger a redraw
 let dragState = null;
 let lastTapTime = 0;
 let lastTapTarget = null;
 let touchActive = false; // prevent ghost clicks after touch
 
-export function initInput(canvas, actionCallback) {
+export function initInput(canvas, actionCallback, moveCallback) {
   onAction = actionCallback;
+  onMove = moveCallback || null;
 
   // Mouse events
   canvas.addEventListener('mousedown', e => {
@@ -95,8 +97,11 @@ function handleMove(x, y) {
   if (!dragState.dragging && (Math.abs(dx) > 5 || Math.abs(dy) > 5)) {
     dragState.dragging = true;
   }
+  // Always update position (needed for offset calculation in render)
   dragState.currentX = x;
   dragState.currentY = y;
+  // Only trigger a redraw when actively dragging
+  if (dragState.dragging && onMove) onMove();
 }
 
 function handleEnd(x, y) {

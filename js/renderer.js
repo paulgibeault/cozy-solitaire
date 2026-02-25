@@ -12,7 +12,7 @@ let logoLoaded = false;
 function ensureLogoLoaded() {
   if (logoImg) return;
   logoImg = new Image();
-  logoImg.onload = () => { logoLoaded = true; };
+  logoImg.onload = () => { logoLoaded = true; invalidateCardBackCache(); };
   logoImg.onerror = (e) => { console.warn('Watermark SVG failed to load', e); };
   logoImg.src = 'logo_watermark.svg';
 }
@@ -23,9 +23,91 @@ let cardLogoLoaded = false;
 function ensureCardLogoLoaded() {
   if (cardLogoImg) return;
   cardLogoImg = new Image();
-  cardLogoImg.onload = () => { cardLogoLoaded = true; };
+  cardLogoImg.onload = () => { cardLogoLoaded = true; invalidateCardBackCache(); };
   cardLogoImg.onerror = (e) => { console.warn('Card logo SVG failed to load', e); };
   cardLogoImg.src = 'logo.svg';
+}
+
+// --- Offscreen card-back texture cache ---
+// Re-rendered only when card dimensions change (layout recalc).
+let cardBackCache = null;  // OffscreenCanvas or regular canvas
+let cardBackCacheW = 0;
+let cardBackCacheH = 0;
+function invalidateCardBackCache() { cardBackCache = null; }
+function getCardBackCache(cardW, cardH, radius) {
+  if (cardBackCache && cardBackCacheW === cardW && cardBackCacheH === cardH) return cardBackCache;
+  // Create (or re-create) the offscreen canvas
+  const c = document.createElement('canvas');
+  c.width = cardW + 4;   // +4 for fake shadow bleed
+  c.height = cardH + 4;
+  const cx = c.getContext('2d');
+
+  // Fake shadow — cheap dark rect offset by 2px
+  cx.fillStyle = 'rgba(0,0,0,0.25)';
+  const r = radius;
+  _roundRectPath(cx, 2, 2, cardW, cardH, r);
+  cx.fill();
+
+  // Card back fill
+  _roundRectPath(cx, 0, 0, cardW, cardH, r);
+  cx.fillStyle = '#ede2c8';
+  cx.fill();
+
+  // Clip interior for texture
+  cx.save();
+  _roundRectPath(cx, 0, 0, cardW, cardH, r);
+  cx.clip();
+
+  // Crosshatch texture
+  cx.strokeStyle = '#8b4513';
+  cx.globalAlpha = 0.18;
+  cx.lineWidth = 0.75;
+  const step = 9;
+  for (let i = -cardH; i < cardW + cardH; i += step) {
+    cx.beginPath(); cx.moveTo(i, 0); cx.lineTo(i + cardH, cardH); cx.stroke();
+    cx.beginPath(); cx.moveTo(i, cardH); cx.lineTo(i + cardH, 0); cx.stroke();
+  }
+  cx.globalAlpha = 1;
+
+  // Logo
+  if (cardLogoLoaded) {
+    const logoSize = Math.round(cardW * 0.82);
+    cx.drawImage(cardLogoImg, (cardW - logoSize) / 2, (cardH - logoSize) / 2, logoSize, logoSize);
+  }
+  cx.restore();
+
+  // Outer border
+  _roundRectPath(cx, 0, 0, cardW, cardH, r);
+  cx.strokeStyle = '#8b4513';
+  cx.lineWidth = 2;
+  cx.stroke();
+
+  // Inner border
+  const ib = 4;
+  _roundRectPath(cx, ib, ib, cardW - ib * 2, cardH - ib * 2, Math.max(r - ib, 2));
+  cx.strokeStyle = '#8b4513';
+  cx.lineWidth = 0.75;
+  cx.stroke();
+
+  cardBackCache = c;
+  cardBackCacheW = cardW;
+  cardBackCacheH = cardH;
+  return c;
+}
+
+// Shared path helper (works on any canvas context)
+function _roundRectPath(cx, x, y, w, h, r) {
+  cx.beginPath();
+  cx.moveTo(x + r, y);
+  cx.lineTo(x + w - r, y);
+  cx.quadraticCurveTo(x + w, y, x + w, y + r);
+  cx.lineTo(x + w, y + h - r);
+  cx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  cx.lineTo(x + r, y + h);
+  cx.quadraticCurveTo(x, y + h, x, y + h - r);
+  cx.lineTo(x, y + r);
+  cx.quadraticCurveTo(x, y, x + r, y);
+  cx.closePath();
 }
 
 export function initRenderer(c) {
@@ -35,6 +117,7 @@ export function initRenderer(c) {
 }
 
 export function recalcLayout() {
+  invalidateCardBackCache();
   const dpr = window.devicePixelRatio || 1;
   const w = window.innerWidth;
   const h = window.innerHeight;
@@ -169,59 +252,11 @@ function roundRect(x, y, w, h, r) {
 
 export function drawCardBack(x, y, alpha = 1) {
   const { cardW, cardH, radius } = layout;
+  const cached = getCardBackCache(cardW, cardH, radius);
+  // The cache canvas is cardW+4 × cardH+4 (shadow bleed), draw it offset by -2,-2
   ctx.save();
-  ctx.globalAlpha = alpha;
-
-  // Drop shadow
-  ctx.shadowColor = COLORS.cardShadow;
-  ctx.shadowBlur = 6;
-  ctx.shadowOffsetY = 2;
-  roundRect(x, y, cardW, cardH, radius);
-  ctx.fillStyle = '#ede2c8';  // warm parchment — distinct from card face
-  ctx.fill();
-  ctx.shadowBlur = 0;
-  ctx.shadowOffsetY = 0;
-
-  // Clip interior for logo
-  ctx.save();
-  roundRect(x, y, cardW, cardH, radius);
-  ctx.clip();
-
-  // Light crosshatch texture beneath the logo
-  ctx.strokeStyle = '#8b4513';
-  ctx.globalAlpha = alpha * 0.18;
-  ctx.lineWidth = 0.75;
-  const step = 9;
-  for (let i = -cardH; i < cardW + cardH; i += step) {
-    ctx.beginPath(); ctx.moveTo(x + i, y); ctx.lineTo(x + i + cardH, y + cardH); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(x + i, y + cardH); ctx.lineTo(x + i + cardH, y); ctx.stroke();
-  }
-  ctx.globalAlpha = alpha;
-
-  // Logo centered — fills most of the card
-  ensureCardLogoLoaded();
-  if (cardLogoLoaded) {
-    const logoSize = Math.round(cardW * 0.82);
-    const logoX = x + (cardW - logoSize) / 2;
-    const logoY = y + (cardH - logoSize) / 2;
-    ctx.drawImage(cardLogoImg, logoX, logoY, logoSize, logoSize);
-  }
-
-  ctx.restore();
-
-  // Outer border — warm brown
-  roundRect(x, y, cardW, cardH, radius);
-  ctx.strokeStyle = '#8b4513';
-  ctx.lineWidth = 2;
-  ctx.stroke();
-
-  // Inner border — thinner, offset inward for a double-rule look
-  const ib = 4;
-  roundRect(x + ib, y + ib, cardW - ib * 2, cardH - ib * 2, Math.max(radius - ib, 2));
-  ctx.strokeStyle = '#8b4513';
-  ctx.lineWidth = 0.75;
-  ctx.stroke();
-
+  if (alpha !== 1) ctx.globalAlpha = alpha;
+  ctx.drawImage(cached, x - 2, y - 2);
   ctx.restore();
 }
 
@@ -230,15 +265,16 @@ export function drawCardFace(x, y, card, alpha = 1) {
   const { cardW, cardH, radius, fontSize, suitSize, centerSuitSize } = layout;
   ctx.save();
   ctx.globalAlpha = alpha;
-  // Shadow
-  ctx.shadowColor = COLORS.cardShadow;
-  ctx.shadowBlur = 6;
-  ctx.shadowOffsetY = 2;
+
+  // Cheap fake shadow — no shadowBlur GPU pass
+  ctx.fillStyle = 'rgba(0,0,0,0.22)';
+  roundRect(x + 2, y + 2, cardW, cardH, radius);
+  ctx.fill();
+
+  // Card face
   roundRect(x, y, cardW, cardH, radius);
   ctx.fillStyle = COLORS.cardFace;
   ctx.fill();
-  ctx.shadowBlur = 0;
-  ctx.shadowOffsetY = 0;
 
   // Border
   roundRect(x, y, cardW, cardH, radius);

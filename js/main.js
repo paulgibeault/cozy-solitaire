@@ -21,14 +21,26 @@ let showStats = false;
 let showModeSelect = false;
 let overlayJustOpened = false; // prevents same-click close when an overlay is first shown
 let lastTime = 0;
+let rafId = null;        // current requestAnimationFrame handle
+let dirty = true;        // true = frame needs to be drawn
+let lastTimerSec = -1;   // last rendered timer second, for detecting changes
 
 // Mode settings
 let modeSettings = loadModeSettings();
 
 function init() {
   initRenderer(canvas);
-  initInput(canvas, handleAction);
-  window.addEventListener('resize', () => { recalcLayout(); });
+  initInput(canvas, handleAction, markDirty);
+  window.addEventListener('resize', () => { recalcLayout(); markDirty(); });
+
+  // Pause the loop when the page/tab/app is hidden (screen off, app switched)
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) {
+      lastTime = 0; // reset dt to avoid a massive jump on resume
+      markDirty();
+    }
+    // When hidden, the loop will naturally stop since scheduleFrame won't be called
+  });
 
   const saved = loadGameState();
   if (saved) {
@@ -38,7 +50,7 @@ function init() {
   }
 
   window.__gameState = state;
-  requestAnimationFrame(loop);
+  scheduleFrame();
 }
 
 function newGame(countPrevious = true) {
@@ -66,6 +78,7 @@ function handleAction(action) {
       showStats = opening;
       showModeSelect = false;
       if (opening) overlayJustOpened = true;
+      markDirty();
       return;
     }
     if (action.button === 'mode') {
@@ -73,11 +86,12 @@ function handleAction(action) {
       showModeSelect = opening;
       showStats = false;
       if (opening) overlayJustOpened = true;
+      markDirty();
       return;
     }
-    if (action.button === 'undo') { undo(state); saveGameState(serializeState(state)); return; }
-    if (action.button === 'new') { newGame(true); return; }
-    if (action.button === 'winNewGame') { newGame(false); return; }
+    if (action.button === 'undo') { undo(state); saveGameState(serializeState(state)); markDirty(); return; }
+    if (action.button === 'new') { newGame(true); markDirty(); return; }
+    if (action.button === 'winNewGame') { newGame(false); markDirty(); return; }
   }
 
   // Overlays block game interaction
@@ -145,6 +159,7 @@ function handleAction(action) {
 
   saveGameState(serializeState(state));
   window.__gameState = state;
+  markDirty();
 }
 
 function getCardFromHit(hit) {
@@ -164,12 +179,30 @@ function moveFromHit(from, toType, toIndex) {
   }
 }
 
+function scheduleFrame() {
+  if (rafId === null) {
+    rafId = requestAnimationFrame(loop);
+  }
+}
+
+function markDirty() {
+  dirty = true;
+  scheduleFrame();
+}
+
 function loop(timestamp) {
+  rafId = null;
   const dt = lastTime ? timestamp - lastTime : 16;
   lastTime = timestamp;
 
   if (!state.won && state.moves > 0 && !showStats && !showModeSelect) {
     state.elapsed += dt;
+    // Mark dirty only when the displayed second changes (once per second)
+    const currentSec = Math.floor(state.elapsed / 1000);
+    if (currentSec !== lastTimerSec) {
+      lastTimerSec = currentSec;
+      dirty = true;
+    }
   }
 
   // Auto-complete
@@ -198,15 +231,34 @@ function loop(timestamp) {
           autoCompleting = false;
         }
         window.__gameState = state;
+        dirty = true;
       } else {
         autoCompleting = false;
       }
     }
+    scheduleFrame(); // keep loop alive during auto-complete
   }
 
+  const tweensActive = hasTweens();
   updateTweens(dt);
-  render(dt);
-  requestAnimationFrame(loop);
+  if (tweensActive) dirty = true;
+
+  // Win particles need continuous updates
+  if (state.won) dirty = true;
+
+  // Keep loop alive while a drag is in progress
+  const dragActive = !!(getDragState() && getDragState().dragging);
+  if (dragActive) dirty = true;
+
+  if (dirty) {
+    dirty = false;
+    render(dt);
+  }
+
+  // Re-schedule only if something ongoing needs continuous frames
+  if (autoCompleting || tweensActive || state.won || dragActive) {
+    scheduleFrame();
+  }
 }
 
 function render(dt) {
@@ -581,6 +633,7 @@ function overlayClickHandler(e) {
     // Click outside modal closes it
     if (!inRect(x, y, mr.x, mr.y, mr.w, mr.h)) {
       showStats = false;
+      markDirty();
       e.stopPropagation();
     }
     return;
@@ -597,6 +650,7 @@ function overlayClickHandler(e) {
     // Click outside modal closes it
     if (!inRect(x, y, mr.x, mr.y, mr.w, mr.h)) {
       showModeSelect = false;
+      markDirty();
       e.stopPropagation();
       return;
     }
@@ -612,6 +666,7 @@ function overlayClickHandler(e) {
       if (inRect(x, y, dx, my, drawBtnW, drawBtnH)) {
         modeSettings.drawMode = mode.id;
         saveModeSettings(modeSettings);
+        markDirty();
         e.stopPropagation();
         return;
       }
@@ -627,6 +682,7 @@ function overlayClickHandler(e) {
       if (inRect(x, y, rx, my, recBtnW, recBtnH)) {
         modeSettings.recycleMode = mode.id;
         saveModeSettings(modeSettings);
+        markDirty();
         e.stopPropagation();
         return;
       }
@@ -642,6 +698,7 @@ function overlayClickHandler(e) {
     if (inRect(x, y, cx - btnW / 2, my, btnW, 36)) {
       showModeSelect = false;
       newGame(true);
+      markDirty();
       e.stopPropagation();
       return;
     }
@@ -653,6 +710,7 @@ function overlayClickHandler(e) {
     const cx = l.w / 2;
     if (inRect(x, y, cx - 50, l.h / 2 + 30, 100, 36)) {
       newGame(false);
+      markDirty();
       e.stopPropagation();
     }
   }
