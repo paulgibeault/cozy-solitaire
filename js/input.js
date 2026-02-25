@@ -1,19 +1,24 @@
 // input.js — Mouse/touch input, drag-and-drop
 import { getLayout, getCardPosition } from './renderer.js';
-import { TABLEAU_COLS, FOUNDATION_COUNT, DROP_ZONE_EXPAND_X, DROP_ZONE_EXPAND_Y } from './constants.js';
+import { TABLEAU_COLS, FOUNDATION_COUNT, DROP_ZONE_EXPAND_X, DROP_ZONE_EXPAND_Y,
+  DRAW_MODES, RECYCLE_MODES } from './constants.js';
 
 let onAction = null;
 let dragState = null;
 let lastTapTime = 0;
 let lastTapTarget = null;
-let touchActive = false; // prevent ghost clicks after touch
+let touchActive = false;
+
+// Overlay state — set by main.js so input knows what's visible
+let overlayState = { showStats: false, showModeSelect: false, won: false };
+
+export function setOverlayState(s) { overlayState = s; }
 
 export function initInput(canvas, actionCallback) {
   onAction = actionCallback;
 
-  // Mouse events
   canvas.addEventListener('mousedown', e => {
-    if (touchActive) return; // ignore ghost click after touch
+    if (touchActive) return;
     handleStart(e.clientX, e.clientY);
   });
   canvas.addEventListener('mousemove', e => {
@@ -25,7 +30,6 @@ export function initInput(canvas, actionCallback) {
     handleEnd(e.clientX, e.clientY);
   });
 
-  // Touch events
   canvas.addEventListener('touchstart', e => {
     e.preventDefault();
     touchActive = true;
@@ -41,7 +45,6 @@ export function initInput(canvas, actionCallback) {
     e.preventDefault();
     const t = e.changedTouches[0];
     handleEnd(t.clientX, t.clientY);
-    // Reset touchActive after a delay to allow this touch cycle to complete
     setTimeout(() => { touchActive = false; }, 400);
   }, { passive: false });
 }
@@ -52,22 +55,24 @@ function handleStart(x, y) {
   const hit = hitTest(x, y);
   if (!hit) return;
 
-  // Double tap detection
-  const now = Date.now();
-  const isDoubleTap = (now - lastTapTime < 400) &&
-    lastTapTarget && lastTapTarget.source === hit.source &&
-    lastTapTarget.colIndex === hit.colIndex &&
-    lastTapTarget.cardIndex === hit.cardIndex;
-  lastTapTime = now;
-  lastTapTarget = hit;
+  // Double tap detection (only for game elements, not buttons/overlays)
+  if (hit.source !== 'button') {
+    const now = Date.now();
+    const isDoubleTap = (now - lastTapTime < 400) &&
+      lastTapTarget && lastTapTarget.source === hit.source &&
+      lastTapTarget.colIndex === hit.colIndex &&
+      lastTapTarget.cardIndex === hit.cardIndex;
+    lastTapTime = now;
+    lastTapTarget = hit;
 
-  if (isDoubleTap) {
-    onAction({ type: 'doubleTap', ...hit });
-    dragState = null;
-    return;
+    if (isDoubleTap) {
+      onAction({ type: 'doubleTap', ...hit });
+      dragState = null;
+      return;
+    }
   }
 
-  // Immediate button actions (no drag)
+  // Immediate actions (no drag)
   if (hit.source === 'stock') {
     onAction({ type: 'tapStock' });
     return;
@@ -115,37 +120,57 @@ function hitTest(x, y) {
   const state = window.__gameState;
   if (!state) return null;
 
-  // Buttons — use generous touch targets (minimum 44px)
-  const btnW = 60, btnH = 28;
-  const btnPad = 8; // extra hit area padding
+  // ── OVERLAY: Stats ──
+  if (overlayState.showStats) {
+    return hitTestStatsOverlay(x, y, l);
+  }
+
+  // ── OVERLAY: Mode Select ──
+  if (overlayState.showModeSelect) {
+    return hitTestModeOverlay(x, y, l);
+  }
+
+  // ── OVERLAY: Win screen ──
+  if (overlayState.won) {
+    const cx = l.w / 2;
+    if (inRect(x, y, cx - 50, l.h / 2 + 30, 100, 36)) {
+      return { source: 'button', button: 'winNewGame' };
+    }
+    return null; // Block all other input during win
+  }
+
+  // ── TOP BAR BUTTONS ──
+  const btnW = 60, btnH = 28, btnPad = 10;
 
   // Stats button
   const statsX = 8, statsW = btnW + 10;
   if (inRect(x, y, statsX - btnPad, l.buttonY - btnPad, statsW + btnPad * 2, btnH + btnPad * 2)) {
     return { source: 'button', button: 'stats' };
   }
-  // Mode button (next to stats)
+  // Mode button
   const modeX = statsX + statsW + 6, modeW = btnW + 10;
   if (inRect(x, y, modeX - btnPad, l.buttonY - btnPad, modeW + btnPad * 2, btnH + btnPad * 2)) {
     return { source: 'button', button: 'mode' };
   }
-  // Undo button
+  // Undo
   const undoX = l.w - btnW * 2 - 16;
   if (inRect(x, y, undoX - btnPad, l.buttonY - btnPad, btnW + btnPad * 2, btnH + btnPad * 2)) {
     return { source: 'button', button: 'undo' };
   }
-  // New game button
+  // New
   const newX = l.w - btnW - 8;
   if (inRect(x, y, newX - btnPad, l.buttonY - btnPad, btnW + btnPad * 2, btnH + btnPad * 2)) {
     return { source: 'button', button: 'new' };
   }
+
+  // ── GAME ELEMENTS ──
 
   // Stock
   if (inRect(x, y, l.stockX, l.stockY, l.cardW, l.cardH)) {
     return { source: 'stock' };
   }
 
-  // Waste — in draw-3 mode, show top 3 fanned out; only top card is grabbable
+  // Waste
   if (state.waste.length > 0 && inRect(x, y, l.wasteX, l.wasteY, l.cardW + (state.drawCount > 1 ? 30 : 0), l.cardH)) {
     return { source: 'waste', colIndex: 0, cardIndex: state.waste.length - 1 };
   }
@@ -160,7 +185,7 @@ function hitTest(x, y) {
     }
   }
 
-  // Tableau — check from bottom (topmost visually) up
+  // Tableau
   for (let col = 0; col < TABLEAU_COLS; col++) {
     const tcol = state.tableau[col];
     if (tcol.length === 0) {
@@ -182,12 +207,72 @@ function hitTest(x, y) {
   return null;
 }
 
+// ── Overlay hit tests ──
+
+function hitTestStatsOverlay(x, y, l) {
+  const cx = l.w / 2;
+  const gap = 32;
+  const closeY = l.h * 0.15 + gap * 8.5;
+  if (inRect(x, y, cx - 50, closeY, 100, 36)) {
+    return { source: 'button', button: 'closeStats' };
+  }
+  // Tapping anywhere else on the overlay does nothing (blocks game input)
+  return null;
+}
+
+function hitTestModeOverlay(x, y, l) {
+  const cx = l.w / 2;
+  const gap = 28;
+  let my = l.h * 0.12 + gap * 1.5;
+
+  // Draw mode buttons
+  my += gap;
+  const drawBtnW = 80, drawBtnH = 34;
+  const drawTotalW = DRAW_MODES.length * drawBtnW + (DRAW_MODES.length - 1) * 8;
+  let dx = cx - drawTotalW / 2;
+  for (const mode of DRAW_MODES) {
+    if (inRect(x, y, dx, my, drawBtnW, drawBtnH)) {
+      return { source: 'button', button: `draw:${mode.id}` };
+    }
+    dx += drawBtnW + 8;
+  }
+  my += drawBtnH + gap;
+
+  // Recycle mode buttons
+  my += gap;
+  const recBtnW = 90, recBtnH = 34;
+  const recTotalW = RECYCLE_MODES.length * recBtnW + (RECYCLE_MODES.length - 1) * 8;
+  let rx = cx - recTotalW / 2;
+  for (const mode of RECYCLE_MODES) {
+    if (inRect(x, y, rx, my, recBtnW, recBtnH)) {
+      return { source: 'button', button: `recycle:${mode.id}` };
+    }
+    rx += recBtnW + 8;
+  }
+  my += recBtnH + gap;
+
+  // Description + warning
+  my += gap * 1.2;
+  my += gap;
+
+  // New Game / Close buttons
+  const btnW = 100, btnGap = 12;
+  if (inRect(x, y, cx - btnW - btnGap / 2, my, btnW, 36)) {
+    return { source: 'button', button: 'applyMode' };
+  }
+  if (inRect(x, y, cx + btnGap / 2, my, btnW, 36)) {
+    return { source: 'button', button: 'closeMode' };
+  }
+
+  return null;
+}
+
 function findDropTarget(x, y) {
   const l = getLayout();
   const ex = DROP_ZONE_EXPAND_X;
   const ey = DROP_ZONE_EXPAND_Y;
 
-  // Foundations — expanded hit zone
+  // Foundations
   for (let i = 0; i < FOUNDATION_COUNT; i++) {
     if (inRect(x, y,
       l.foundationX[i] - ex, l.foundationY - ey,
@@ -196,7 +281,7 @@ function findDropTarget(x, y) {
     }
   }
 
-  // Tableau — expanded hit zone, generous vertical area
+  // Tableau
   for (let col = 0; col < TABLEAU_COLS; col++) {
     const state = window.__gameState;
     const tcol = state.tableau[col];
@@ -207,7 +292,6 @@ function findDropTarget(x, y) {
       const lastPos = getCardPosition(state, 'tableau', col, tcol.length - 1);
       bottomY = lastPos.y + l.cardH;
     }
-    // Expand the drop zone: wider and extends well below the last card
     if (x >= l.tableauX[col] - ex && x <= l.tableauX[col] + l.cardW + ex &&
         y >= l.tableauY - ey && y <= bottomY + l.cardH + ey) {
       return { source: 'tableau', colIndex: col };

@@ -2,7 +2,7 @@
 import { initRenderer, recalcLayout, getLayout, clear, drawCardBack, drawCardFace,
   drawEmptyPile, drawHighlight, drawButton, drawText, getCardPosition,
   spawnWinParticles, updateAndDrawParticles } from './renderer.js';
-import { initInput, getDragState } from './input.js';
+import { initInput, getDragState, setOverlayState } from './input.js';
 import { updateTweens, hasTweens } from './tween.js';
 import { createGameState, dealStock, moveCards, findFoundationFor, canPlaceOnTableau,
   canPlaceOnFoundation, isWon, allCardsFaceUp, getAutoCompleteCard, undo, canRecycleStock,
@@ -21,8 +21,15 @@ let showStats = false;
 let showModeSelect = false;
 let lastTime = 0;
 
-// Mode settings
 let modeSettings = loadModeSettings();
+
+function syncOverlayState() {
+  setOverlayState({
+    showStats,
+    showModeSelect,
+    won: state ? state.won : false,
+  });
+}
 
 function init() {
   initRenderer(canvas);
@@ -37,6 +44,7 @@ function init() {
   }
 
   window.__gameState = state;
+  syncOverlayState();
   requestAnimationFrame(loop);
 }
 
@@ -53,41 +61,57 @@ function newGame(countPrevious = true) {
   showStats = false;
   showModeSelect = false;
   clearGameState();
+  syncOverlayState();
 }
 
 function handleAction(action) {
-  // Allow closing overlays regardless of game state
   if (action.type === 'button') {
-    if (action.button === 'stats') {
-      showStats = !showStats;
-      showModeSelect = false;
-      return;
-    }
-    if (action.button === 'mode') {
-      showModeSelect = !showModeSelect;
-      showStats = false;
-      return;
-    }
-    if (action.button === 'undo') { undo(state); saveGameState(serializeState(state)); return; }
-    if (action.button === 'new') { newGame(true); return; }
-    if (action.button === 'closeStats') { showStats = false; return; }
-    if (action.button === 'closeMode') { showModeSelect = false; return; }
-    if (action.button === 'winNewGame') { newGame(false); return; }
-    // Mode selection buttons
-    if (action.button.startsWith('draw:')) {
-      modeSettings.drawMode = action.button.split(':')[1];
-      saveModeSettings(modeSettings);
-      return;
-    }
-    if (action.button.startsWith('recycle:')) {
-      modeSettings.recycleMode = action.button.split(':')[1];
-      saveModeSettings(modeSettings);
-      return;
-    }
-    if (action.button === 'applyMode') {
-      showModeSelect = false;
-      newGame(true);
-      return;
+    switch (action.button) {
+      case 'stats':
+        showStats = !showStats;
+        showModeSelect = false;
+        syncOverlayState();
+        return;
+      case 'mode':
+        showModeSelect = !showModeSelect;
+        showStats = false;
+        syncOverlayState();
+        return;
+      case 'closeStats':
+        showStats = false;
+        syncOverlayState();
+        return;
+      case 'closeMode':
+        showModeSelect = false;
+        syncOverlayState();
+        return;
+      case 'undo':
+        undo(state);
+        saveGameState(serializeState(state));
+        return;
+      case 'new':
+        newGame(true);
+        return;
+      case 'winNewGame':
+        newGame(false);
+        return;
+      case 'applyMode':
+        showModeSelect = false;
+        newGame(true);
+        syncOverlayState();
+        return;
+      default:
+        // Mode selection buttons
+        if (action.button.startsWith('draw:')) {
+          modeSettings.drawMode = action.button.split(':')[1];
+          saveModeSettings(modeSettings);
+          return;
+        }
+        if (action.button.startsWith('recycle:')) {
+          modeSettings.recycleMode = action.button.split(':')[1];
+          saveModeSettings(modeSettings);
+          return;
+        }
     }
   }
 
@@ -146,6 +170,7 @@ function handleAction(action) {
     if (stats.bestTime === null || time < stats.bestTime) stats.bestTime = time;
     saveStats(stats);
     clearGameState();
+    syncOverlayState();
   }
 
   // Check auto-complete
@@ -207,6 +232,7 @@ function loop(timestamp) {
           saveStats(stats);
           clearGameState();
           autoCompleting = false;
+          syncOverlayState();
         }
         window.__gameState = state;
       } else {
@@ -224,12 +250,11 @@ function render(dt) {
   const l = getLayout();
   clear();
 
-  // Draw top bar buttons
+  // Top bar buttons
   const btnW = 60, btnH = 28, btnFS = 12;
   drawButton(8, l.buttonY, btnW + 10, btnH, '📊 Stats', btnFS);
   drawButton(8 + btnW + 10 + 6, l.buttonY, btnW + 10, btnH, '🎮 Mode', btnFS);
 
-  // Timer and moves (centered)
   const secs = Math.floor(state.elapsed / 1000);
   const mins = Math.floor(secs / 60);
   const timeStr = `${mins}:${(secs % 60).toString().padStart(2, '0')}`;
@@ -245,28 +270,22 @@ function render(dt) {
   } else {
     const canRecycle = canRecycleStock(state);
     drawEmptyPile(l.stockX, l.stockY, canRecycle ? '↻' : '✕');
-    // Show pass count if limited
     if (state.maxPasses !== Infinity) {
       drawText(l.stockX + l.cardW / 2, l.stockY + l.cardH + 12,
         `${state.stockPasses}/${state.maxPasses}`, 10, 'center');
     }
   }
 
-  // Waste — fan cards in draw-3 mode
+  // Waste
   if (state.waste.length > 0) {
     if (state.drawCount > 1) {
-      // Show up to 3 fanned waste cards
       const fanCount = Math.min(state.drawCount, state.waste.length);
       const fanOffset = 15;
       for (let i = fanCount - 1; i >= 0; i--) {
         const cardIdx = state.waste.length - 1 - i;
         if (cardIdx >= 0) {
           const ox = (fanCount - 1 - i) * fanOffset;
-          if (i === 0) {
-            drawCardFace(l.wasteX + ox, l.wasteY, state.waste[cardIdx]);
-          } else {
-            drawCardFace(l.wasteX + ox, l.wasteY, state.waste[cardIdx], 0.9);
-          }
+          drawCardFace(l.wasteX + ox, l.wasteY, state.waste[cardIdx], i === 0 ? 1 : 0.9);
         }
       }
     } else {
@@ -287,7 +306,7 @@ function render(dt) {
     }
   }
 
-  // Drop zone highlights during drag
+  // Drop zone highlights
   const drag = getDragState();
   if (drag && drag.dragging) {
     const card = getCardFromHit(drag);
@@ -330,7 +349,7 @@ function render(dt) {
     }
   }
 
-  // Draw dragged cards on top
+  // Dragged cards
   if (drag && drag.dragging) {
     const offsetX = drag.currentX - drag.startX;
     const offsetY = drag.currentY - drag.startY;
@@ -358,10 +377,8 @@ function render(dt) {
     drawButton(l.w / 2 - 50, l.h / 2 + 30, 100, 36, 'New Game', 14);
   }
 
-  // Stats overlay
+  // Overlays
   if (showStats) drawStatsOverlay(l);
-
-  // Mode select overlay
   if (showModeSelect) drawModeOverlay(l);
 }
 
@@ -396,7 +413,6 @@ function drawModeOverlay(l) {
 
   drawText(cx, y, '🎮 Game Mode', 24, 'center'); y += gap * 1.5;
 
-  // Draw count
   drawText(cx, y, 'Draw Count', 16, 'center'); y += gap;
   const drawBtnW = 80, drawBtnH = 34;
   const drawTotalW = DRAW_MODES.length * drawBtnW + (DRAW_MODES.length - 1) * 8;
@@ -408,7 +424,6 @@ function drawModeOverlay(l) {
   }
   y += drawBtnH + gap;
 
-  // Deck recycling
   drawText(cx, y, 'Deck Passes', 16, 'center'); y += gap;
   const recBtnW = 90, recBtnH = 34;
   const recTotalW = RECYCLE_MODES.length * recBtnW + (RECYCLE_MODES.length - 1) * 8;
@@ -420,16 +435,13 @@ function drawModeOverlay(l) {
   }
   y += recBtnH + gap;
 
-  // Current mode description
   const drawMode = DRAW_MODES.find(m => m.id === modeSettings.drawMode) || DRAW_MODES[0];
   const recycleMode = RECYCLE_MODES.find(m => m.id === modeSettings.recycleMode) || RECYCLE_MODES[0];
   drawText(cx, y, `${drawMode.label} · ${recycleMode.label} passes`, 14, 'center');
   y += gap * 1.2;
-
   drawText(cx, y, '⚠️ Starting new game applies changes', 12, 'center');
   y += gap;
 
-  // Buttons
   const btnW = 100, btnGap = 12;
   drawButton(cx - btnW - btnGap / 2, y, btnW, 36, '▶ New Game', 13);
   drawButton(cx + btnGap / 2, y, btnW, 36, 'Close', 13);
@@ -461,105 +473,6 @@ function drawModeButton(x, y, w, h, text, active) {
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(text, x + w / 2, y + h / 2);
-}
-
-// Handle overlay button clicks — integrated into input system
-// The stats close, mode buttons, and win new-game buttons are handled
-// through the input hitTest via button sources, routed to handleAction.
-
-// We need to extend the hitTest in input.js to detect overlay buttons.
-// Instead, we add a global click handler that detects overlay-specific clicks.
-canvas.addEventListener('click', overlayClickHandler);
-canvas.addEventListener('touchend', (e) => {
-  // Use a small delay to avoid double-firing with the input system
-  const t = e.changedTouches[0];
-  // overlayClickHandler is handled via the input system now
-});
-
-function overlayClickHandler(e) {
-  const l = getLayout();
-  const x = e.clientX, y = e.clientY;
-
-  if (showStats) {
-    const cx = l.w / 2;
-    const closeY = l.h * 0.15 + 32 * 8.5;
-    if (inRect(x, y, cx - 50, closeY, 100, 36)) {
-      showStats = false;
-      e.stopPropagation();
-    }
-    return;
-  }
-
-  if (showModeSelect) {
-    const cx = l.w / 2;
-    const gap = 28;
-    let my = l.h * 0.12 + gap * 1.5;
-
-    // Draw mode buttons
-    my += gap; // "Draw Count" label
-    const drawBtnW = 80, drawBtnH = 34;
-    const drawTotalW = DRAW_MODES.length * drawBtnW + (DRAW_MODES.length - 1) * 8;
-    let dx = cx - drawTotalW / 2;
-    for (const mode of DRAW_MODES) {
-      if (inRect(x, y, dx, my, drawBtnW, drawBtnH)) {
-        modeSettings.drawMode = mode.id;
-        saveModeSettings(modeSettings);
-        e.stopPropagation();
-        return;
-      }
-      dx += drawBtnW + 8;
-    }
-    my += drawBtnH + gap;
-
-    // Recycle mode buttons
-    my += gap; // "Deck Passes" label
-    const recBtnW = 90, recBtnH = 34;
-    const recTotalW = RECYCLE_MODES.length * recBtnW + (RECYCLE_MODES.length - 1) * 8;
-    let rx = cx - recTotalW / 2;
-    for (const mode of RECYCLE_MODES) {
-      if (inRect(x, y, rx, my, recBtnW, recBtnH)) {
-        modeSettings.recycleMode = mode.id;
-        saveModeSettings(modeSettings);
-        e.stopPropagation();
-        return;
-      }
-      rx += recBtnW + 8;
-    }
-    my += recBtnH + gap;
-
-    // Description line
-    my += gap * 1.2;
-    // Warning line
-    my += gap;
-
-    // New Game / Close buttons
-    const btnW = 100, btnGap = 12;
-    if (inRect(x, y, cx - btnW - btnGap / 2, my, btnW, 36)) {
-      showModeSelect = false;
-      newGame(true);
-      e.stopPropagation();
-      return;
-    }
-    if (inRect(x, y, cx + btnGap / 2, my, btnW, 36)) {
-      showModeSelect = false;
-      e.stopPropagation();
-      return;
-    }
-    return;
-  }
-
-  // Win new game button
-  if (state && state.won) {
-    const cx = l.w / 2;
-    if (inRect(x, y, cx - 50, l.h / 2 + 30, 100, 36)) {
-      newGame(false);
-      e.stopPropagation();
-    }
-  }
-}
-
-function inRect(px, py, rx, ry, rw, rh) {
-  return px >= rx && px <= rx + rw && py >= ry && py <= ry + rh;
 }
 
 init();
