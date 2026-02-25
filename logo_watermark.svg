@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <!--
+    Monochrome watermark — uses system serif font for suit glyphs (reliable in canvas).
+    Rendered at low globalAlpha by the canvas engine.
+  -->
+
+  <!-- ♠ top — centered at (100, 46) -->
+  <text x="100" y="46"
+    font-family="serif" font-size="56"
+    text-anchor="middle" dominant-baseline="middle"
+    fill="#000">♠</text>
+
+  <!-- ♥ bottom — centered at (100, 154) -->
+  <text x="100" y="154"
+    font-family="serif" font-size="56"
+    text-anchor="middle" dominant-baseline="middle"
+    fill="#000">♥</text>
+
+  <!-- ♣ left — centered at (46, 100) -->
+  <text x="46" y="100"
+    font-family="serif" font-size="52"
+    text-anchor="middle" dominant-baseline="middle"
+    fill="#000">♣</text>
+
+  <!-- ♦ right — centered at (154, 100) -->
+  <text x="154" y="100"
+    font-family="serif" font-size="52"
+    text-anchor="middle" dominant-baseline="middle"
+    fill="#000">♦</text>
+
+  <!-- Outer dashed ring -->
+  <circle cx="100" cy="100" r="86"
+    fill="none" stroke="#000" stroke-width="1.8" stroke-dasharray="5 9"/>
+
+  <!-- Cardinal axis dots -->
+  <circle cx="100" cy="76"  r="2.5" fill="#000"/>
+  <circle cx="100" cy="124" r="2.5" fill="#000"/>
+  <circle cx="76"  cy="100" r="2.5" fill="#000"/>
+  <circle cx="124" cy="100" r="2.5" fill="#000"/>
+
+  <!-- Diagonal diamond pips -->
+  <path d="M63,63 L68,56 L73,63 L68,70Z"   fill="#000"/>
+  <path d="M127,63 L132,56 L137,63 L132,70Z" fill="#000"/>
+  <path d="M63,137 L68,130 L73,137 L68,144Z" fill="#000"/>
+  <path d="M127,137 L132,130 L137,137 L132,144Z" fill="#000"/>
+
+  <!-- Center medallion ring -->
+  <circle cx="100" cy="100" r="21"
+    fill="none" stroke="#000" stroke-width="2"/>
+
+  <!-- Center "CS" — system serif, no external font needed -->
+  <text x="100" y="100"
+    font-family="serif" font-size="15" font-weight="bold" font-style="italic"
+    text-anchor="middle" dominant-baseline="middle"
+    letter-spacing="2"
+    fill="#000">CS</text>
+</svg>

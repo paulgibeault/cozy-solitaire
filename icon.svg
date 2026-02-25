@@ -1,0 +1,147 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <!-- Squircle clip (Apple-style superellipse, ~r/w ≈ 0.45) -->
+    <clipPath id="squircle">
+      <rect x="0" y="0" width="512" height="512" rx="115" ry="115"/>
+    </clipPath>
+
+    <!-- Background gradient: felt green depth -->
+    <radialGradient id="bgGrad" cx="42%" cy="38%" r="70%">
+      <stop offset="0%" stop-color="#3d7a54"/>
+      <stop offset="55%" stop-color="#2d5a3d"/>
+      <stop offset="100%" stop-color="#1a3d28"/>
+    </radialGradient>
+
+    <!-- Gold shimmer for suits -->
+    <radialGradient id="goldGlow" cx="50%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="#fff4a0"/>
+      <stop offset="50%" stop-color="#ffd700"/>
+      <stop offset="100%" stop-color="#b8860b"/>
+    </radialGradient>
+
+    <!-- Red shimmer for red suits -->
+    <radialGradient id="redGlow" cx="50%" cy="35%" r="60%">
+      <stop offset="0%" stop-color="#ff8080"/>
+      <stop offset="50%" stop-color="#d63031"/>
+      <stop offset="100%" stop-color="#8b1a1a"/>
+    </radialGradient>
+
+    <!-- Soft inner shadow ring -->
+    <filter id="innerShadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="6" result="blur"/>
+      <feComposite in="blur" in2="SourceGraphic" operator="over"/>
+    </filter>
+
+    <!-- Suit drop shadow -->
+    <filter id="suitShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="3" stdDeviation="5" flood-color="#000" flood-opacity="0.4"/>
+    </filter>
+  </defs>
+
+  <!-- ── Squircle background ── -->
+  <g clip-path="url(#squircle)">
+    <!-- Felt background -->
+    <rect x="0" y="0" width="512" height="512" fill="url(#bgGrad)"/>
+
+    <!-- Subtle fabric texture lines -->
+    <g opacity="0.07" stroke="#ffffff" stroke-width="1">
+      <line x1="0" y1="60" x2="512" y2="60"/>
+      <line x1="0" y1="120" x2="512" y2="120"/>
+      <line x1="0" y1="180" x2="512" y2="180"/>
+      <line x1="0" y1="240" x2="512" y2="240"/>
+      <line x1="0" y1="300" x2="512" y2="300"/>
+      <line x1="0" y1="360" x2="512" y2="360"/>
+      <line x1="0" y1="420" x2="512" y2="420"/>
+      <line x1="0" y1="480" x2="512" y2="480"/>
+    </g>
+
+    <!-- ── Decorative outer ring ── -->
+    <circle cx="256" cy="256" r="228" fill="none" stroke="#ffd700" stroke-width="2.5" stroke-opacity="0.35" stroke-dasharray="8 12"/>
+    <circle cx="256" cy="256" r="218" fill="none" stroke="#ffd700" stroke-width="1" stroke-opacity="0.2"/>
+
+    <!-- ── Four large suits at cardinal positions ── -->
+
+    <!-- TOP: Spade ♠ — dark gold -->
+    <g filter="url(#suitShadow)">
+      <text x="256" y="148"
+        font-family="Georgia, 'Times New Roman', serif"
+        font-size="120"
+        text-anchor="middle"
+        dominant-baseline="middle"
+        fill="url(#goldGlow)"
+        opacity="0.92">♠</text>
+    </g>
+
+    <!-- BOTTOM: Heart ♥ — red -->
+    <g filter="url(#suitShadow)">
+      <text x="256" y="378"
+        font-family="Georgia, 'Times New Roman', serif"
+        font-size="120"
+        text-anchor="middle"
+        dominant-baseline="middle"
+        fill="url(#redGlow)"
+        opacity="0.92">♥</text>
+    </g>
+
+    <!-- LEFT: Club ♣ — dark gold -->
+    <g filter="url(#suitShadow)">
+      <text x="128" y="262"
+        font-family="Georgia, 'Times New Roman', serif"
+        font-size="110"
+        text-anchor="middle"
+        dominant-baseline="middle"
+        fill="url(#goldGlow)"
+        opacity="0.85">♣</text>
+    </g>
+
+    <!-- RIGHT: Diamond ♦ — red -->
+    <g filter="url(#suitShadow)">
+      <text x="386" y="262"
+        font-family="Georgia, 'Times New Roman', serif"
+        font-size="106"
+        text-anchor="middle"
+        dominant-baseline="middle"
+        fill="url(#redGlow)"
+        opacity="0.88">♦</text>
+    </g>
+
+    <!-- ── Center medallion ── -->
+    <!-- Outer glow circle -->
+    <circle cx="256" cy="256" r="70" fill="#1a3d28" fill-opacity="0.85" stroke="#ffd700" stroke-width="2" stroke-opacity="0.6"/>
+    <circle cx="256" cy="256" r="62" fill="none" stroke="#ffd700" stroke-width="0.8" stroke-opacity="0.35"/>
+
+    <!-- Center "CS" monogram -->
+    <text x="256" y="270"
+      font-family="Georgia, 'Times New Roman', serif"
+      font-size="48"
+      font-weight="bold"
+      font-style="italic"
+      text-anchor="middle"
+      letter-spacing="4"
+      fill="#ffd700"
+      fill-opacity="0.95"
+      filter="url(#suitShadow)">CS</text>
+
+    <!-- Small crown / dots above monogram -->
+    <circle cx="228" cy="222" r="3.5" fill="#ffd700" opacity="0.6"/>
+    <circle cx="256" cy="216" r="4.5" fill="#ffd700" opacity="0.75"/>
+    <circle cx="284" cy="222" r="3.5" fill="#ffd700" opacity="0.6"/>
+
+    <!-- Diagonal ornament dots -->
+    <circle cx="192" cy="192" r="3" fill="#ffd700" opacity="0.35"/>
+    <circle cx="320" cy="192" r="3" fill="#ffd700" opacity="0.35"/>
+    <circle cx="192" cy="320" r="3" fill="#ffd700" opacity="0.35"/>
+    <circle cx="320" cy="320" r="3" fill="#ffd700" opacity="0.35"/>
+
+    <!-- ── Squircle edge highlight (inner bevel) ── -->
+    <rect x="1" y="1" width="510" height="510" rx="114" ry="114"
+      fill="none"
+      stroke="rgba(255,255,255,0.12)"
+      stroke-width="2"/>
+    <!-- Inner shadow at bottom -->
+    <rect x="0" y="0" width="512" height="512" rx="115" ry="115"
+      fill="none"
+      stroke="rgba(0,0,0,0.25)"
+      stroke-width="8"/>
+  </g>
+</svg>

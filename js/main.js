@@ -1,6 +1,6 @@
 // main.js — Entry point, game loop, state machine
 import { initRenderer, recalcLayout, getLayout, clear, drawCardBack, drawCardFace,
-  drawEmptyPile, drawHighlight, drawButton, drawText, getCardPosition,
+  drawEmptyPile, drawHighlight, drawButton, drawIconButton, drawHeaderBar, drawText, getCardPosition,
   spawnWinParticles, updateAndDrawParticles } from './renderer.js';
 import { initInput, getDragState } from './input.js';
 import { updateTweens, hasTweens } from './tween.js';
@@ -226,19 +226,24 @@ function render(dt) {
   const l = getLayout();
   clear();
 
-  // Draw top bar buttons
-  const btnW = 60, btnH = 28, btnFS = 12;
-  drawButton(8, l.buttonY, btnW + 10, btnH, '📊 Stats', btnFS);
-  drawButton(8 + btnW + 10 + 6, l.buttonY, btnW + 10, btnH, '🎮 Mode', btnFS);
+  // Header bar — frosted dark panel
+  const barH = 38;
+  drawHeaderBar(l.w, barH);
 
-  // Timer and moves (centered)
+  // Draw top bar buttons
+  const btnW = 68, btnH = 28, btnFS = 12;
+  const btnY = (barH - btnH) / 2;
+  drawIconButton(8,           btnY, btnW, btnH, 'Stats', btnFS, 'stats');
+  drawIconButton(8 + btnW + 6, btnY, btnW, btnH, 'Mode',  btnFS, 'mode');
+
+  // Timer and moves (centered in header)
   const secs = Math.floor(state.elapsed / 1000);
   const mins = Math.floor(secs / 60);
   const timeStr = `${mins}:${(secs % 60).toString().padStart(2, '0')}`;
-  drawText(l.w / 2, l.buttonY + btnH / 2, `⏱ ${timeStr}  |  Moves: ${state.moves}`, 11, 'center');
+  drawText(l.w / 2, barH / 2, `♣  ${timeStr}  ·  ${state.moves} moves`, 12, 'center');
 
-  drawButton(l.w - btnW * 2 - 16, l.buttonY, btnW, btnH, 'Undo', btnFS);
-  drawButton(l.w - btnW - 8, l.buttonY, btnW, btnH, 'New', btnFS);
+  drawButton(l.w - btnW * 2 - 14, btnY, btnW, btnH, 'Undo', btnFS);
+  drawButton(l.w - btnW - 8,      btnY, btnW, btnH, 'New', btnFS);
 
   // Stock
   if (state.stock.length > 0) {
@@ -375,7 +380,7 @@ function drawStatsOverlay(l) {
   const cx = l.w / 2;
   let y = l.h * 0.15;
   const gap = 32;
-  drawText(cx, y, '📊 Statistics', 24, 'center'); y += gap * 1.5;
+  drawText(cx, y, '♠  Statistics', 24, 'center'); y += gap * 1.5;
   drawText(cx, y, `Games Played: ${stats.gamesPlayed}`, 18, 'center'); y += gap;
   drawText(cx, y, `Games Won: ${stats.gamesWon}`, 18, 'center'); y += gap;
   const pct = stats.gamesPlayed > 0 ? Math.round(stats.gamesWon / stats.gamesPlayed * 100) : 0;
@@ -396,7 +401,7 @@ function drawModeOverlay(l) {
   let y = l.h * 0.12;
   const gap = 28;
 
-  drawText(cx, y, '🎮 Game Mode', 24, 'center'); y += gap * 1.5;
+  drawText(cx, y, '♦  Game Mode', 24, 'center'); y += gap * 1.5;
 
   // Draw count
   drawText(cx, y, 'Draw Count', 16, 'center'); y += gap;
@@ -454,7 +459,7 @@ function drawModeButton(x, y, w, h, text, active) {
   ctx.fillStyle = active ? COLORS.modeButtonActive : COLORS.modeButton;
   ctx.fill();
   if (active) {
-    ctx.strokeStyle = '#ffd700';
+    ctx.strokeStyle = '#c0bdb8';  // silver
     ctx.lineWidth = 2;
     ctx.stroke();
   }

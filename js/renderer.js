@@ -6,6 +6,28 @@ import { COLORS, SUIT_COLORS, CARD_ASPECT, CARD_RADIUS_RATIO, CARD_OVERLAP_FACED
 let canvas, ctx;
 let layout = {};
 
+// Felt watermark — pure-path SVG, loaded once
+let logoImg = null;
+let logoLoaded = false;
+function ensureLogoLoaded() {
+  if (logoImg) return;
+  logoImg = new Image();
+  logoImg.onload = () => { logoLoaded = true; };
+  logoImg.onerror = (e) => { console.warn('Watermark SVG failed to load', e); };
+  logoImg.src = 'logo_watermark.svg';
+}
+
+// Colored logo for card backs — loaded once
+let cardLogoImg = null;
+let cardLogoLoaded = false;
+function ensureCardLogoLoaded() {
+  if (cardLogoImg) return;
+  cardLogoImg = new Image();
+  cardLogoImg.onload = () => { cardLogoLoaded = true; };
+  cardLogoImg.onerror = (e) => { console.warn('Card logo SVG failed to load', e); };
+  cardLogoImg.src = 'logo.svg';
+}
+
 export function initRenderer(c) {
   canvas = c;
   ctx = canvas.getContext('2d');
@@ -112,6 +134,19 @@ export function getLayout() { return layout; }
 export function clear() {
   ctx.fillStyle = COLORS.felt;
   ctx.fillRect(0, 0, layout.w, layout.h);
+
+  // Felt watermark logo (centered, subtle)
+  ensureLogoLoaded();
+  if (logoLoaded) {
+    const logoSize = Math.min(layout.w, layout.h) * 0.45;
+    const lx = (layout.w - logoSize) / 2;
+    const ly = layout.h * 0.62 - logoSize / 2;
+    ctx.save();
+    ctx.globalAlpha = 0.13;
+    ctx.drawImage(logoImg, lx, ly, logoSize, logoSize);
+    ctx.restore();
+  }
+
   // Subtle felt texture via border
   ctx.strokeStyle = COLORS.feltBorder;
   ctx.lineWidth = 4;
@@ -136,47 +171,60 @@ export function drawCardBack(x, y, alpha = 1) {
   const { cardW, cardH, radius } = layout;
   ctx.save();
   ctx.globalAlpha = alpha;
-  // Shadow
+
+  // Drop shadow
   ctx.shadowColor = COLORS.cardShadow;
   ctx.shadowBlur = 6;
   ctx.shadowOffsetY = 2;
   roundRect(x, y, cardW, cardH, radius);
-  ctx.fillStyle = COLORS.cardBack1;
+  ctx.fillStyle = '#ede2c8';  // warm parchment — distinct from card face
   ctx.fill();
   ctx.shadowBlur = 0;
   ctx.shadowOffsetY = 0;
 
-  // Cross-hatch pattern
-  ctx.strokeStyle = COLORS.cardBackPattern;
-  ctx.lineWidth = 1;
-  const pad = 4;
+  // Clip interior for logo
   ctx.save();
+  roundRect(x, y, cardW, cardH, radius);
   ctx.clip();
-  const step = 8;
+
+  // Light crosshatch texture beneath the logo
+  ctx.strokeStyle = '#8b4513';
+  ctx.globalAlpha = alpha * 0.18;
+  ctx.lineWidth = 0.75;
+  const step = 9;
   for (let i = -cardH; i < cardW + cardH; i += step) {
-    ctx.beginPath();
-    ctx.moveTo(x + pad + i, y + pad);
-    ctx.lineTo(x + pad + i + cardH, y + cardH - pad);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(x + pad + i, y + cardH - pad);
-    ctx.lineTo(x + pad + i + cardH, y + pad);
-    ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x + i, y); ctx.lineTo(x + i + cardH, y + cardH); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x + i, y + cardH); ctx.lineTo(x + i + cardH, y); ctx.stroke();
   }
+  ctx.globalAlpha = alpha;
+
+  // Logo centered — fills most of the card
+  ensureCardLogoLoaded();
+  if (cardLogoLoaded) {
+    const logoSize = Math.round(cardW * 0.82);
+    const logoX = x + (cardW - logoSize) / 2;
+    const logoY = y + (cardH - logoSize) / 2;
+    ctx.drawImage(cardLogoImg, logoX, logoY, logoSize, logoSize);
+  }
+
   ctx.restore();
 
-  // Border
+  // Outer border — warm brown
   roundRect(x, y, cardW, cardH, radius);
-  ctx.strokeStyle = COLORS.cardBack2;
+  ctx.strokeStyle = '#8b4513';
   ctx.lineWidth = 2;
   ctx.stroke();
-  // Inner border
-  roundRect(x + 3, y + 3, cardW - 6, cardH - 6, radius - 1);
-  ctx.strokeStyle = COLORS.cardBack2;
-  ctx.lineWidth = 1;
+
+  // Inner border — thinner, offset inward for a double-rule look
+  const ib = 4;
+  roundRect(x + ib, y + ib, cardW - ib * 2, cardH - ib * 2, Math.max(radius - ib, 2));
+  ctx.strokeStyle = '#8b4513';
+  ctx.lineWidth = 0.75;
   ctx.stroke();
+
   ctx.restore();
 }
+
 
 export function drawCardFace(x, y, card, alpha = 1) {
   const { cardW, cardH, radius, fontSize, suitSize, centerSuitSize } = layout;
@@ -264,19 +312,150 @@ export function drawHighlight(x, y) {
 }
 
 export function drawButton(x, y, w, h, text, fontSize = 14) {
-  const r = 6;
+  const r = 7;
+  // Fill
   roundRect(x, y, w, h, r);
   ctx.fillStyle = COLORS.buttonBg;
   ctx.fill();
+
+  // Top highlight — gives a subtle 3-D inset feel
+  ctx.save();
   roundRect(x, y, w, h, r);
-  ctx.strokeStyle = COLORS.cardBack2;
+  ctx.clip();
+  ctx.fillStyle = 'rgba(255,255,255,0.06)';
+  ctx.fillRect(x, y, w, h / 2);
+  ctx.restore();
+
+  // Border
+  roundRect(x, y, w, h, r);
+  ctx.strokeStyle = COLORS.buttonBorder;
   ctx.lineWidth = 1;
   ctx.stroke();
+
+  // Label
   ctx.fillStyle = COLORS.buttonText;
   ctx.font = `bold ${fontSize}px Georgia, serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(text, x + w / 2, y + h / 2);
+  ctx.fillText(text, x + w / 2, y + h / 2 + 0.5);
+}
+
+// Button with a small canvas-drawn icon to the left of the label
+export function drawIconButton(x, y, w, h, label, fontSize, iconType) {
+  const r = 7;
+  roundRect(x, y, w, h, r);
+  ctx.fillStyle = COLORS.buttonBg;
+  ctx.fill();
+  ctx.save();
+  roundRect(x, y, w, h, r);
+  ctx.clip();
+  ctx.fillStyle = 'rgba(255,255,255,0.06)';
+  ctx.fillRect(x, y, w, h / 2);
+  ctx.restore();
+  roundRect(x, y, w, h, r);
+  ctx.strokeStyle = COLORS.buttonBorder;
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  const iconSize = 13;
+  const iconCx = x + 9 + iconSize / 2;
+  const iconCy  = y + h / 2;
+  ctx.save();
+  ctx.fillStyle   = COLORS.buttonText;
+  ctx.strokeStyle = COLORS.buttonText;
+  if (iconType === 'stats') _drawStatsIcon(iconCx, iconCy, iconSize);
+  else if (iconType === 'mode') _drawCardsIcon(iconCx, iconCy, iconSize);
+  ctx.restore();
+
+  const labelX = x + 9 + iconSize + (w - 9 - iconSize) / 2;
+  ctx.fillStyle = COLORS.buttonText;
+  ctx.font = `bold ${fontSize}px Georgia, serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(label, labelX, y + h / 2 + 0.5);
+}
+
+// Carved medallion: circular frame + 3 ascending stroke bars inside
+function _drawStatsIcon(cx, cy, size) {
+  const lw = 1.4;
+  ctx.lineWidth = lw;
+
+  // Outer circle — the "coin/seal" frame
+  ctx.beginPath();
+  ctx.arc(cx, cy, size * 0.47, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // 3 ascending bars as stroke rectangles (no fill)
+  const barW   = size * 0.17;
+  const gap    = size * 0.10;
+  const base   = cy + size * 0.30;
+  const bHeights = [size * 0.30, size * 0.48, size * 0.62];
+  const totalW = bHeights.length * barW + (bHeights.length - 1) * gap;
+  let bx = cx - totalW / 2;
+  ctx.lineWidth = 1.1;
+  for (const bh of bHeights) {
+    ctx.strokeRect(Math.round(bx), Math.round(base - bh), Math.round(barW), Math.round(bh));
+    bx += barW + gap;
+  }
+
+  // Tiny baseline tick  
+  ctx.lineWidth = lw;
+  ctx.beginPath();
+  ctx.moveTo(cx - totalW / 2 - 1, Math.round(base));
+  ctx.lineTo(cx + totalW / 2 + 1, Math.round(base));
+  ctx.stroke();
+}
+
+// Carved compass rose: 4 diamond pips at cardinal points + center dot + cross lines
+function _drawCardsIcon(cx, cy, size) {
+  const reach = size * 0.33;   // distance from center to pip
+  const ps    = size * 0.13;   // pip half-size
+
+  // Draw a solid diamond pip
+  function pip(px, py) {
+    ctx.beginPath();
+    ctx.moveTo(px,      py - ps * 1.5);
+    ctx.lineTo(px + ps, py);
+    ctx.lineTo(px,      py + ps * 1.5);
+    ctx.lineTo(px - ps, py);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // Hairline cross connecting the pips
+  ctx.lineWidth = 0.8;
+  ctx.beginPath();
+  ctx.moveTo(cx,          cy - reach + ps * 1.0);
+  ctx.lineTo(cx,          cy + reach - ps * 1.0);
+  ctx.moveTo(cx - reach + ps * 0.7, cy);
+  ctx.lineTo(cx + reach - ps * 0.7, cy);
+  ctx.stroke();
+
+  // Center dot
+  ctx.beginPath();
+  ctx.arc(cx, cy, size * 0.07, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 4 pips — top, right, bottom, left
+  pip(cx,          cy - reach);
+  pip(cx + reach,  cy);
+  pip(cx,          cy + reach);
+  pip(cx - reach,  cy);
+}
+
+
+
+export function drawHeaderBar(w, h) {
+  // Frosted dark panel across the top
+  ctx.fillStyle = COLORS.headerBg;
+  ctx.fillRect(0, 0, w, h);
+  // Bottom separator line
+  ctx.strokeStyle = COLORS.buttonBorder;
+  ctx.lineWidth = 0.75;
+  ctx.beginPath();
+  ctx.moveTo(0, h);
+  ctx.lineTo(w, h);
+  ctx.stroke();
 }
 
 export function drawText(x, y, text, size = 14, align = 'left') {

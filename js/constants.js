@@ -17,16 +17,18 @@ export const COLORS = {
   emptyPileBorder: 'rgba(255,255,255,0.15)',
   text: '#fdf6e3',
   textDark: '#2c3e50',
-  buttonBg: '#5a3a1a',
-  buttonBgActive: '#7a5a3a',
-  buttonText: '#fdf6e3',
+  buttonBg:         '#4a3824',       // warm medium brown
+  buttonBgHover:    '#5a4830',
+  buttonText:       '#f0e4cc',       // warm cream
+  buttonBorder:     '#8a7050',       // lighter warm gold-brown
+  headerBg:         'rgba(30,58,40,0.88)', // felt-green panel — cohesive with the board
   winParticle1: '#ffd700',
   winParticle2: '#ff6b6b',
   winParticle3: '#51cf66',
-  modeBg: 'rgba(0,0,0,0.85)',
-  modeButton: '#4a6a3a',
-  modeButtonActive: '#6a8a5a',
-  modeButtonText: '#fdf6e3',
+  modeBg: 'rgba(0,0,0,0.88)',
+  modeButton:       '#1e2d1e',
+  modeButtonActive: '#1a2e4a',       // navy
+  modeButtonText:   '#e8dcc8',
 };
 
 export const SUITS = ['♠', '♥', '♦', '♣'];
