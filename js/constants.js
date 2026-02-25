@@ -25,9 +25,13 @@ export const COLORS = {
   winParticle1: '#ffd700',
   winParticle2: '#ff6b6b',
   winParticle3: '#51cf66',
-  modeBg: 'rgba(0,0,0,0.88)',
-  modeButton:       '#1e2d1e',
-  modeButtonActive: '#1a2e4a',       // navy
+  modeBg: 'rgba(0,0,0,0.65)',
+  modalBox:         '#1c2e1f',       // deep felt green
+  modalBorder:      '#8a7050',       // warm gold-brown
+  modalTitle:       '#f0e4cc',       // cream
+  modeButton:       '#2a3d2a',       // muted felt green
+  modeButtonActive: '#4a3824',       // warm brown (matches header buttons)
+  modeButtonActiveBorder: '#c0a870', // warm gold
   modeButtonText:   '#e8dcc8',
 };
 

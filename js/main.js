@@ -19,6 +19,7 @@ let autoCompleting = false;
 let autoCompleteTimer = 0;
 let showStats = false;
 let showModeSelect = false;
+let overlayJustOpened = false; // prevents same-click close when an overlay is first shown
 let lastTime = 0;
 
 // Mode settings
@@ -61,36 +62,22 @@ function handleAction(action) {
   // Allow closing overlays regardless of game state
   if (action.type === 'button') {
     if (action.button === 'stats') {
-      showStats = !showStats;
+      const opening = !showStats;
+      showStats = opening;
       showModeSelect = false;
+      if (opening) overlayJustOpened = true;
       return;
     }
     if (action.button === 'mode') {
-      showModeSelect = !showModeSelect;
+      const opening = !showModeSelect;
+      showModeSelect = opening;
       showStats = false;
+      if (opening) overlayJustOpened = true;
       return;
     }
     if (action.button === 'undo') { undo(state); saveGameState(serializeState(state)); return; }
     if (action.button === 'new') { newGame(true); return; }
-    if (action.button === 'closeStats') { showStats = false; return; }
-    if (action.button === 'closeMode') { showModeSelect = false; return; }
     if (action.button === 'winNewGame') { newGame(false); return; }
-    // Mode selection buttons
-    if (action.button.startsWith('draw:')) {
-      modeSettings.drawMode = action.button.split(':')[1];
-      saveModeSettings(modeSettings);
-      return;
-    }
-    if (action.button.startsWith('recycle:')) {
-      modeSettings.recycleMode = action.button.split(':')[1];
-      saveModeSettings(modeSettings);
-      return;
-    }
-    if (action.button === 'applyMode') {
-      showModeSelect = false;
-      newGame(true);
-      return;
-    }
   }
 
   // Overlays block game interaction
@@ -372,40 +359,119 @@ function render(dt) {
   if (showModeSelect) drawModeOverlay(l);
 }
 
+function drawModalBox(ctx, cx, cy, w, h) {
+  const r = 12;
+  const x = cx - w / 2, y = cy - h / 2;
+  // Box fill
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+  ctx.fillStyle = COLORS.modalBox;
+  ctx.fill();
+  // Border
+  ctx.strokeStyle = COLORS.modalBorder;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  // Inset border line
+  const inset = 5;
+  ctx.beginPath();
+  ctx.moveTo(x + r + inset, y + inset);
+  ctx.lineTo(x + w - r - inset, y + inset);
+  ctx.quadraticCurveTo(x + w - inset, y + inset, x + w - inset, y + r + inset);
+  ctx.lineTo(x + w - inset, y + h - r - inset);
+  ctx.quadraticCurveTo(x + w - inset, y + h - inset, x + w - r - inset, y + h - inset);
+  ctx.lineTo(x + r + inset, y + h - inset);
+  ctx.quadraticCurveTo(x + inset, y + h - inset, x + inset, y + h - r - inset);
+  ctx.lineTo(x + inset, y + r + inset);
+  ctx.quadraticCurveTo(x + inset, y + inset, x + r + inset, y + inset);
+  ctx.closePath();
+  ctx.strokeStyle = 'rgba(138,112,80,0.35)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+}
+
 function drawStatsOverlay(l) {
   const ctx = canvas.getContext('2d');
-  ctx.fillStyle = COLORS.modeBg;
-  ctx.fillRect(0, 0, l.w, l.h);
-
   const cx = l.w / 2;
-  let y = l.h * 0.15;
-  const gap = 32;
-  drawText(cx, y, '♠  Statistics', 24, 'center'); y += gap * 1.5;
-  drawText(cx, y, `Games Played: ${stats.gamesPlayed}`, 18, 'center'); y += gap;
-  drawText(cx, y, `Games Won: ${stats.gamesWon}`, 18, 'center'); y += gap;
+  const gap = 30;
+  const rows = 6;
+  const modalW = Math.min(300, l.w - 40);
+  const modalH = 60 + rows * gap + gap * 1.5;
+  const cy = l.h / 2;
+
+  drawModalBox(ctx, cx, cy, modalW, modalH);
+
+  let y = cy - modalH / 2 + 36;
+  drawText(cx, y, '♠  Statistics', 22, 'center');
+
+  // Divider
+  y += 20;
+  ctx.strokeStyle = COLORS.modalBorder;
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(cx - modalW/2 + 20, y); ctx.lineTo(cx + modalW/2 - 20, y); ctx.stroke();
+  y += 18;
+
   const pct = stats.gamesPlayed > 0 ? Math.round(stats.gamesWon / stats.gamesPlayed * 100) : 0;
-  drawText(cx, y, `Win Rate: ${pct}%`, 18, 'center'); y += gap;
-  drawText(cx, y, `Current Streak: ${stats.currentStreak}`, 18, 'center'); y += gap;
-  drawText(cx, y, `Best Streak: ${stats.bestStreak}`, 18, 'center'); y += gap;
   const best = stats.bestTime ? `${Math.floor(stats.bestTime / 1000)}s` : '--';
-  drawText(cx, y, `Best Time: ${best}`, 18, 'center'); y += gap * 1.5;
-  drawButton(cx - 50, y, 100, 36, 'Close', 14);
+
+  const rows2 = [
+    ['Games Played', stats.gamesPlayed],
+    ['Games Won',    stats.gamesWon],
+    ['Win Rate',     `${pct}%`],
+    ['Current Streak', stats.currentStreak],
+    ['Best Streak',  stats.bestStreak],
+    ['Best Time',    best],
+  ];
+  for (const [label, val] of rows2) {
+    ctx.fillStyle = 'rgba(192,168,112,0.55)';
+    ctx.font = '13px Georgia, serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, cx - modalW/2 + 24, y);
+    ctx.fillStyle = COLORS.modalTitle;
+    ctx.font = 'bold 13px Georgia, serif';
+    ctx.textAlign = 'right';
+    ctx.fillText(String(val), cx + modalW/2 - 24, y);
+    y += gap;
+  }
 }
 
 function drawModeOverlay(l) {
   const ctx = canvas.getContext('2d');
-  ctx.fillStyle = COLORS.modeBg;
-  ctx.fillRect(0, 0, l.w, l.h);
-
   const cx = l.w / 2;
-  let y = l.h * 0.12;
   const gap = 28;
 
-  drawText(cx, y, '♦  Game Mode', 24, 'center'); y += gap * 1.5;
+  // Calculate modal dimensions
+  const drawBtnW = 80, drawBtnH = 34;
+  const recBtnW = 90, recBtnH = 34;
+  const modalW = Math.min(340, l.w - 40);
+  const modalH = 36 + 22 + 16 + gap + drawBtnH + gap + 16 + gap + recBtnH + gap + 18 + gap + 36 + 28;
+  const cy = l.h / 2;
+
+  drawModalBox(ctx, cx, cy, modalW, modalH);
+
+  let y = cy - modalH / 2 + 36;
+
+  drawText(cx, y, '♦  Game Mode', 22, 'center');
+
+  // Divider
+  y += 20;
+  ctx.strokeStyle = COLORS.modalBorder;
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(cx - modalW/2 + 20, y); ctx.lineTo(cx + modalW/2 - 20, y); ctx.stroke();
+  y += 20;
 
   // Draw count
-  drawText(cx, y, 'Draw Count', 16, 'center'); y += gap;
-  const drawBtnW = 80, drawBtnH = 34;
+  drawText(cx, y, 'Draw Count', 13, 'center');
+  y += gap;
   const drawTotalW = DRAW_MODES.length * drawBtnW + (DRAW_MODES.length - 1) * 8;
   let dx = cx - drawTotalW / 2;
   for (const mode of DRAW_MODES) {
@@ -416,8 +482,8 @@ function drawModeOverlay(l) {
   y += drawBtnH + gap;
 
   // Deck recycling
-  drawText(cx, y, 'Deck Passes', 16, 'center'); y += gap;
-  const recBtnW = 90, recBtnH = 34;
+  drawText(cx, y, 'Deck Passes', 13, 'center');
+  y += gap;
   const recTotalW = RECYCLE_MODES.length * recBtnW + (RECYCLE_MODES.length - 1) * 8;
   let rx = cx - recTotalW / 2;
   for (const mode of RECYCLE_MODES) {
@@ -430,16 +496,12 @@ function drawModeOverlay(l) {
   // Current mode description
   const drawMode = DRAW_MODES.find(m => m.id === modeSettings.drawMode) || DRAW_MODES[0];
   const recycleMode = RECYCLE_MODES.find(m => m.id === modeSettings.recycleMode) || RECYCLE_MODES[0];
-  drawText(cx, y, `${drawMode.label} · ${recycleMode.label} passes`, 14, 'center');
-  y += gap * 1.2;
-
-  drawText(cx, y, '⚠️ Starting new game applies changes', 12, 'center');
+  drawText(cx, y, `${drawMode.label}  ·  ${recycleMode.label} passes`, 12, 'center');
   y += gap;
 
-  // Buttons
-  const btnW = 100, btnGap = 12;
-  drawButton(cx - btnW - btnGap / 2, y, btnW, 36, '▶ New Game', 13);
-  drawButton(cx + btnGap / 2, y, btnW, 36, 'Close', 13);
+  // New Game button (centered, full width of modal minus padding)
+  const btnW = modalW - 48;
+  drawButton(cx - btnW / 2, y, btnW, 36, '▶  New Game', 13);
 }
 
 function drawModeButton(x, y, w, h, text, active) {
@@ -458,13 +520,11 @@ function drawModeButton(x, y, w, h, text, active) {
   ctx.closePath();
   ctx.fillStyle = active ? COLORS.modeButtonActive : COLORS.modeButton;
   ctx.fill();
-  if (active) {
-    ctx.strokeStyle = '#c0bdb8';  // silver
-    ctx.lineWidth = 2;
-    ctx.stroke();
-  }
-  ctx.fillStyle = COLORS.modeButtonText;
-  ctx.font = `bold 13px Georgia, serif`;
+  ctx.strokeStyle = active ? COLORS.modeButtonActiveBorder : 'rgba(138,112,80,0.3)';
+  ctx.lineWidth = active ? 1.5 : 1;
+  ctx.stroke();
+  ctx.fillStyle = active ? COLORS.buttonText : COLORS.modeButtonText;
+  ctx.font = `${active ? 'bold' : 'normal'} 13px Georgia, serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(text, x + w / 2, y + h / 2);
@@ -491,14 +551,35 @@ canvas.addEventListener('touchend', (e) => {
   }
 });
 
+// Returns the bounding rect of the stats modal box
+function statsModalRect(l) {
+  const gap = 30;
+  const rows = 6;
+  const modalW = Math.min(300, l.w - 40);
+  const modalH = 60 + rows * gap + gap * 1.5;
+  return { x: l.w/2 - modalW/2, y: l.h/2 - modalH/2, w: modalW, h: modalH };
+}
+
+// Returns the bounding rect of the mode modal box
+function modeModalRect(l) {
+  const gap = 28;
+  const drawBtnH = 34, recBtnH = 34;
+  const modalW = Math.min(340, l.w - 40);
+  const modalH = 36 + 22 + 16 + gap + drawBtnH + gap + 16 + gap + recBtnH + gap + 18 + gap + 36 + 28;
+  return { x: l.w/2 - modalW/2, y: l.h/2 - modalH/2, w: modalW, h: modalH };
+}
+
 function overlayClickHandler(e) {
+  // Skip processing if the overlay was just opened by this same click event
+  if (overlayJustOpened) { overlayJustOpened = false; return; }
+
   const l = getLayout();
   const x = e.clientX, y = e.clientY;
 
   if (showStats) {
-    const cx = l.w / 2;
-    const closeY = l.h * 0.15 + 32 * 8.5;
-    if (inRect(x, y, cx - 50, closeY, 100, 36)) {
+    const mr = statsModalRect(l);
+    // Click outside modal closes it
+    if (!inRect(x, y, mr.x, mr.y, mr.w, mr.h)) {
       showStats = false;
       e.stopPropagation();
     }
@@ -506,13 +587,25 @@ function overlayClickHandler(e) {
   }
 
   if (showModeSelect) {
+    const mr = modeModalRect(l);
     const cx = l.w / 2;
     const gap = 28;
-    let my = l.h * 0.12 + gap * 1.5;
+    const drawBtnW = 80, drawBtnH = 34;
+    const recBtnW = 90, recBtnH = 34;
+    const modalW = mr.w;
+
+    // Click outside modal closes it
+    if (!inRect(x, y, mr.x, mr.y, mr.w, mr.h)) {
+      showModeSelect = false;
+      e.stopPropagation();
+      return;
+    }
+
+    // Reconstruct y positions matching drawModeOverlay
+    let my = mr.y + 36 + 20 + 16 + 20; // title + divider area
 
     // Draw mode buttons
     my += gap; // "Draw Count" label
-    const drawBtnW = 80, drawBtnH = 34;
     const drawTotalW = DRAW_MODES.length * drawBtnW + (DRAW_MODES.length - 1) * 8;
     let dx = cx - drawTotalW / 2;
     for (const mode of DRAW_MODES) {
@@ -528,7 +621,6 @@ function overlayClickHandler(e) {
 
     // Recycle mode buttons
     my += gap; // "Deck Passes" label
-    const recBtnW = 90, recBtnH = 34;
     const recTotalW = RECYCLE_MODES.length * recBtnW + (RECYCLE_MODES.length - 1) * 8;
     let rx = cx - recTotalW / 2;
     for (const mode of RECYCLE_MODES) {
@@ -543,20 +635,13 @@ function overlayClickHandler(e) {
     my += recBtnH + gap;
 
     // Description line
-    my += gap * 1.2;
-    // Warning line
     my += gap;
 
-    // New Game / Close buttons
-    const btnW = 100, btnGap = 12;
-    if (inRect(x, y, cx - btnW - btnGap / 2, my, btnW, 36)) {
+    // New Game button
+    const btnW = modalW - 48;
+    if (inRect(x, y, cx - btnW / 2, my, btnW, 36)) {
       showModeSelect = false;
       newGame(true);
-      e.stopPropagation();
-      return;
-    }
-    if (inRect(x, y, cx + btnGap / 2, my, btnW, 36)) {
-      showModeSelect = false;
       e.stopPropagation();
       return;
     }
