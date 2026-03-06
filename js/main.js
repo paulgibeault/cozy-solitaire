@@ -14,6 +14,10 @@ import { TABLEAU_COLS, FOUNDATION_COUNT, AUTO_COMPLETE_DELAY, COLORS,
 
 const canvas = document.getElementById('game');
 let state = null;
+
+// Mode settings — must be initialized before getGameTypeKey() is called
+let modeSettings = loadModeSettings();
+
 // Derive a unique key for the current game type (draw mode + recycle mode)
 function getGameTypeKey() {
   return `${modeSettings.drawMode}_${modeSettings.recycleMode}`;
@@ -29,9 +33,6 @@ let lastTime = 0;
 let rafId = null;        // current requestAnimationFrame handle
 let dirty = true;        // true = frame needs to be drawn
 let lastTimerSec = -1;   // last rendered timer second, for detecting changes
-
-// Mode settings
-let modeSettings = loadModeSettings();
 
 function init() {
   initRenderer(canvas);
@@ -324,6 +325,9 @@ function render(dt) {
     }
   }
 
+  // Get current drag state for the rest of render
+  const drag = getDragState();
+
   // Waste — fan cards in draw-3 mode
   // FIX: skip the top waste card if it's currently being dragged (prevents ghost)
   const wasteDrag = drag && drag.dragging && drag.source === 'waste';
@@ -368,7 +372,6 @@ function render(dt) {
   }
 
   // Drop zone highlights during drag
-  const drag = getDragState();
   if (drag && drag.dragging) {
     const card = getCardFromHit(drag);
     if (card) {
