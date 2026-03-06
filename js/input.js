@@ -135,9 +135,14 @@ function hitTest(x, y) {
     return { source: 'button', button: 'mode' };
   }
   // Undo button
-  const undoX = l.w - btnW * 2 - 16;
+  const undoX = l.w - btnW * 3 - 22;
   if (inRect(x, y, undoX - btnPad, l.buttonY - btnPad, btnW + btnPad * 2, btnH + btnPad * 2)) {
     return { source: 'button', button: 'undo' };
+  }
+  // Restart button
+  const restartX = l.w - btnW * 2 - 14;
+  if (inRect(x, y, restartX - btnPad, l.buttonY - btnPad, btnW + btnPad * 2, btnH + btnPad * 2)) {
+    return { source: 'button', button: 'restart' };
   }
   // New game button
   const newX = l.w - btnW - 8;

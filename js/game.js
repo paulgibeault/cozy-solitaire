@@ -23,6 +23,10 @@ export function createGameState(drawCount = 1, maxPasses = Infinity) {
     stock.push({ ...deck[idx], faceUp: false });
   }
 
+  // Snapshot the initial deal for the Restart feature
+  const initialTableau = tableau.map(col => col.map(card => ({ ...card })));
+  const initialStock   = stock.map(card => ({ ...card }));
+
   return {
     tableau,
     foundations,
@@ -36,6 +40,8 @@ export function createGameState(drawCount = 1, maxPasses = Infinity) {
     drawCount,
     maxPasses,
     stockPasses: 0, // how many times we've recycled
+    initialTableau,
+    initialStock,
   };
 }
 
@@ -221,6 +227,8 @@ export function serializeState(state) {
     drawCount: state.drawCount,
     maxPasses: state.maxPasses,
     stockPasses: state.stockPasses,
+    initialTableau: state.initialTableau,
+    initialStock: state.initialStock,
   };
 }
 
@@ -232,5 +240,7 @@ export function deserializeState(data) {
     stockPasses: data.stockPasses || 0,
     won: false,
     history: [],
+    initialTableau: data.initialTableau || null,
+    initialStock: data.initialStock || null,
   };
 }

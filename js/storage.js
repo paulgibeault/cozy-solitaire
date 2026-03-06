@@ -16,15 +16,30 @@ const defaultMode = {
   recycleMode: 'unlimited',
 };
 
-export function loadStats() {
+// Stats are stored as a keyed object: { [gameTypeKey]: { gamesPlayed, ... }, ... }
+export function loadStats(gameTypeKey) {
   try {
     const raw = localStorage.getItem(STATS_KEY);
-    return raw ? { ...defaultStats, ...JSON.parse(raw) } : { ...defaultStats };
+    if (!raw) return { ...defaultStats };
+    const parsed = JSON.parse(raw);
+    // Nested keyed format
+    if (parsed && typeof parsed === 'object' && gameTypeKey && parsed[gameTypeKey]) {
+      return { ...defaultStats, ...parsed[gameTypeKey] };
+    }
+    return { ...defaultStats };
   } catch { return { ...defaultStats }; }
 }
 
-export function saveStats(stats) {
-  try { localStorage.setItem(STATS_KEY, JSON.stringify(stats)); } catch {}
+export function saveStats(stats, gameTypeKey) {
+  try {
+    const raw = localStorage.getItem(STATS_KEY);
+    let all = {};
+    if (raw) {
+      try { all = JSON.parse(raw); } catch {}
+    }
+    all[gameTypeKey] = stats;
+    localStorage.setItem(STATS_KEY, JSON.stringify(all));
+  } catch {}
 }
 
 export function saveGameState(state) {

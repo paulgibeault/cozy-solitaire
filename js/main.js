@@ -14,7 +14,12 @@ import { TABLEAU_COLS, FOUNDATION_COUNT, AUTO_COMPLETE_DELAY, COLORS,
 
 const canvas = document.getElementById('game');
 let state = null;
-let stats = loadStats();
+// Derive a unique key for the current game type (draw mode + recycle mode)
+function getGameTypeKey() {
+  return `${modeSettings.drawMode}_${modeSettings.recycleMode}`;
+}
+
+let stats = loadStats(getGameTypeKey());
 let autoCompleting = false;
 let autoCompleteTimer = 0;
 let showStats = false;
@@ -58,7 +63,7 @@ function newGame(countPrevious = true) {
     stats.gamesPlayed++;
     // We do not increment gamesWon
     stats.currentStreak = 0;
-    saveStats(stats);
+    saveStats(stats, getGameTypeKey());
   }
   const drawMode = DRAW_MODES.find(m => m.id === modeSettings.drawMode) || DRAW_MODES[0];
   const recycleMode = RECYCLE_MODES.find(m => m.id === modeSettings.recycleMode) || RECYCLE_MODES[0];
@@ -68,6 +73,24 @@ function newGame(countPrevious = true) {
   showStats = false;
   showModeSelect = false;
   clearGameState();
+}
+
+function restartGame() {
+  if (!state || !state.initialTableau || !state.initialStock) return;
+  // Restore the exact initial deal without touching stats
+  state.tableau = state.initialTableau.map(col => col.map(card => ({ ...card })));
+  state.foundations = Array.from({ length: FOUNDATION_COUNT }, () => []);
+  state.stock = state.initialStock.map(card => ({ ...card }));
+  state.waste = [];
+  state.moves = 0;
+  state.elapsed = 0;
+  state.startTime = Date.now();
+  state.won = false;
+  state.history = [];
+  state.stockPasses = 0;
+  autoCompleting = false;
+  window.__gameState = state;
+  saveGameState(serializeState(state));
 }
 
 function handleAction(action) {
@@ -90,6 +113,7 @@ function handleAction(action) {
       return;
     }
     if (action.button === 'undo') { undo(state); saveGameState(serializeState(state)); markDirty(); return; }
+    if (action.button === 'restart') { restartGame(); markDirty(); return; }
     if (action.button === 'new') { newGame(true); markDirty(); return; }
     if (action.button === 'winNewGame') { newGame(false); markDirty(); return; }
   }
@@ -147,7 +171,7 @@ function handleAction(action) {
     if (stats.currentStreak > stats.bestStreak) stats.bestStreak = stats.currentStreak;
     const time = state.elapsed;
     if (stats.bestTime === null || time < stats.bestTime) stats.bestTime = time;
-    saveStats(stats);
+    saveStats(stats, getGameTypeKey());
     clearGameState();
   }
 
@@ -226,7 +250,7 @@ function loop(timestamp) {
           if (stats.currentStreak > stats.bestStreak) stats.bestStreak = stats.currentStreak;
           const time = state.elapsed;
           if (stats.bestTime === null || time < stats.bestTime) stats.bestTime = time;
-          saveStats(stats);
+          saveStats(stats, getGameTypeKey());
           clearGameState();
           autoCompleting = false;
         }
@@ -281,8 +305,10 @@ function render(dt) {
   const timeStr = `${mins}:${(secs % 60).toString().padStart(2, '0')}`;
   drawText(l.w / 2, barH / 2, `♣  ${timeStr}  ·  ${state.moves} moves`, 12, 'center');
 
-  drawButton(l.w - btnW * 2 - 14, btnY, btnW, btnH, 'Undo', btnFS);
-  drawButton(l.w - btnW - 8,      btnY, btnW, btnH, 'New', btnFS);
+  // Right-side buttons: Undo | Restart | New  (3 buttons)
+  drawButton(l.w - btnW * 3 - 22, btnY, btnW, btnH, 'Undo',    btnFS);
+  drawButton(l.w - btnW * 2 - 14, btnY, btnW, btnH, '↩ Restart', btnFS);
+  drawButton(l.w - btnW - 8,      btnY, btnW, btnH, 'New',     btnFS);
 
   // Stock
   if (state.stock.length > 0) {
@@ -299,6 +325,8 @@ function render(dt) {
   }
 
   // Waste — fan cards in draw-3 mode
+  // FIX: skip the top waste card if it's currently being dragged (prevents ghost)
+  const wasteDrag = drag && drag.dragging && drag.source === 'waste';
   if (state.waste.length > 0) {
     if (state.drawCount > 1) {
       // Show up to 3 fanned waste cards
@@ -307,6 +335,8 @@ function render(dt) {
       for (let i = fanCount - 1; i >= 0; i--) {
         const cardIdx = state.waste.length - 1 - i;
         if (cardIdx >= 0) {
+          // i === 0 is the top (draggable) card — skip it while dragging
+          if (i === 0 && wasteDrag) continue;
           const ox = (fanCount - 1 - i) * fanOffset;
           if (i === 0) {
             drawCardFace(l.wasteX + ox, l.wasteY, state.waste[cardIdx]);
@@ -316,18 +346,22 @@ function render(dt) {
         }
       }
     } else {
-      drawCardFace(l.wasteX, l.wasteY, state.waste[state.waste.length - 1]);
+      if (!wasteDrag) {
+        drawCardFace(l.wasteX, l.wasteY, state.waste[state.waste.length - 1]);
+      }
     }
   } else {
     drawEmptyPile(l.wasteX, l.wasteY);
   }
 
   // Foundations
+  // FIX: skip the top foundation card if it's being dragged (prevents ghost)
   const suitLabels = ['♠', '♥', '♦', '♣'];
   for (let i = 0; i < FOUNDATION_COUNT; i++) {
     const f = state.foundations[i];
+    const foundationDrag = drag && drag.dragging && drag.source === 'foundation' && drag.colIndex === i;
     if (f.length > 0) {
-      drawCardFace(l.foundationX[i], l.foundationY, f[f.length - 1]);
+      if (!foundationDrag) drawCardFace(l.foundationX[i], l.foundationY, f[f.length - 1]);
     } else {
       drawEmptyPile(l.foundationX[i], l.foundationY, suitLabels[i]);
     }
@@ -456,7 +490,8 @@ function drawStatsOverlay(l) {
   const gap = 30;
   const rows = 6;
   const modalW = Math.min(300, l.w - 40);
-  const modalH = 60 + rows * gap + gap * 1.5;
+  // Extra row for the game-type subtitle
+  const modalH = 60 + rows * gap + gap * 1.5 + 22;
   const cy = l.h / 2;
 
   drawModalBox(ctx, cx, cy, modalW, modalH);
@@ -464,8 +499,18 @@ function drawStatsOverlay(l) {
   let y = cy - modalH / 2 + 36;
   drawText(cx, y, '♠  Statistics', 22, 'center');
 
-  // Divider
+  // Game-type subtitle
+  const drawMode    = DRAW_MODES.find(m => m.id === modeSettings.drawMode) || DRAW_MODES[0];
+  const recycleMode = RECYCLE_MODES.find(m => m.id === modeSettings.recycleMode) || RECYCLE_MODES[0];
   y += 20;
+  ctx.fillStyle = 'rgba(192,168,112,0.75)';
+  ctx.font = '11px Georgia, serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(`${drawMode.label}  ·  ${recycleMode.label}`, cx, y);
+
+  // Divider
+  y += 14;
   ctx.strokeStyle = COLORS.modalBorder;
   ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(cx - modalW/2 + 20, y); ctx.lineTo(cx + modalW/2 - 20, y); ctx.stroke();
@@ -608,7 +653,7 @@ function statsModalRect(l) {
   const gap = 30;
   const rows = 6;
   const modalW = Math.min(300, l.w - 40);
-  const modalH = 60 + rows * gap + gap * 1.5;
+  const modalH = 60 + rows * gap + gap * 1.5 + 22; // +22 for game-type subtitle
   return { x: l.w/2 - modalW/2, y: l.h/2 - modalH/2, w: modalW, h: modalH };
 }
 
@@ -657,6 +702,8 @@ function overlayClickHandler(e) {
 
     // Reconstruct y positions matching drawModeOverlay
     let my = mr.y + 36 + 20 + 16 + 20; // title + divider area
+    // NOTE: When mode changes, reload stats for the new game type
+    // This reload happens in the New Game button handler below
 
     // Draw mode buttons
     my += gap; // "Draw Count" label
@@ -698,6 +745,8 @@ function overlayClickHandler(e) {
     if (inRect(x, y, cx - btnW / 2, my, btnW, 36)) {
       showModeSelect = false;
       newGame(true);
+      // Reload stats for the potentially new game type
+      stats = loadStats(getGameTypeKey());
       markDirty();
       e.stopPropagation();
       return;
