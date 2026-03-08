@@ -5,7 +5,7 @@ import { initRenderer, recalcLayout, getLayout, clear, drawCardBack, drawCardFac
 import { initInput, getDragState } from './input.js';
 import { updateTweens, hasTweens } from './tween.js';
 import { createGameState, dealStock, moveCards, findFoundationFor, canPlaceOnTableau,
-  canPlaceOnFoundation, isWon, allCardsFaceUp, getAutoCompleteCard, undo, canRecycleStock,
+  canPlaceOnFoundation, isWon, allCardsFaceUp, getAutoCompleteCard, undo, undoTo, canRecycleStock,
   serializeState, deserializeState } from './game.js';
 import { loadStats, saveStats, saveGameState, loadGameState, clearGameState,
   loadModeSettings, saveModeSettings } from './storage.js';
@@ -57,7 +57,70 @@ function init() {
 
   document.getElementById('btn-new').addEventListener('click', () => { dropdown.classList.add('hidden'); document.querySelector('.dropdown-caret').style.transform = 'rotate(0deg)'; newGame(true); markDirty(); });
   document.getElementById('btn-restart').addEventListener('click', () => { dropdown.classList.add('hidden'); document.querySelector('.dropdown-caret').style.transform = 'rotate(0deg)'; restartGame(); markDirty(); });
-  document.getElementById('btn-undo').addEventListener('click', () => { dropdown.classList.add('hidden'); document.querySelector('.dropdown-caret').style.transform = 'rotate(0deg)'; undo(state); saveGameState(serializeState(state)); markDirty(); });
+  
+  // Floating Undo Button Logic
+  const undoBtn = document.getElementById('btn-undo-floating');
+  const undoMenu = document.getElementById('undo-menu');
+  const undoList = document.getElementById('undo-list');
+  let undoTimer = null;
+  let undoLongPressed = false;
+
+  const showUndoMenu = () => {
+    undoLongPressed = true;
+    undoList.innerHTML = '';
+    
+    if (state.history.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'dropdown-btn';
+      empty.style.color = '#888';
+      empty.style.cursor = 'default';
+      empty.innerText = 'No history available';
+      undoList.appendChild(empty);
+    } else {
+      // Show newest first (reverse order of history array)
+      for (let i = state.history.length - 1; i >= 0; i--) {
+        const item = state.history[i];
+        const btn = document.createElement('button');
+        btn.className = 'dropdown-btn';
+        btn.innerHTML = `<span class="icon">↶</span> ${item.actionDesc || 'Previous State'} <span style="font-size: 10px; color: #888; margin-left: auto;">[${item.moves}]</span>`;
+        btn.onclick = (e) => {
+          e.stopPropagation();
+          undoTo(state, i);
+          saveGameState(serializeState(state));
+          undoMenu.classList.add('hidden');
+          markDirty();
+        };
+        undoList.appendChild(btn);
+      }
+    }
+    undoMenu.classList.remove('hidden');
+    overlayJustOpened = true; 
+  };
+
+  const handleUndoStart = (e) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    undoLongPressed = false;
+    if (undoTimer) clearTimeout(undoTimer);
+    undoTimer = setTimeout(showUndoMenu, 400);
+    undoMenu.classList.add('hidden');
+  };
+
+  const handleUndoEnd = (e) => {
+    if (undoTimer) {
+      clearTimeout(undoTimer);
+      undoTimer = null;
+      if (!undoLongPressed && (e.target === undoBtn || undoBtn.contains(e.target))) {
+        if (undo(state)) {
+          saveGameState(serializeState(state));
+          markDirty();
+        }
+      }
+    }
+  };
+
+  undoBtn.addEventListener('pointerdown', handleUndoStart);
+  window.addEventListener('pointerup', handleUndoEnd);
+  undoBtn.addEventListener('contextmenu', e => e.preventDefault());
   
   document.getElementById('btn-stats').addEventListener('click', () => {
     dropdown.classList.add('hidden');
@@ -685,6 +748,15 @@ function overlayClickHandler(e) {
 
   const l = getLayout();
   const x = e.clientX, y = e.clientY;
+
+  const undoMenu = document.getElementById('undo-menu');
+  const undoBtn = document.getElementById('btn-undo-floating');
+  if (!undoMenu.classList.contains('hidden')) {
+    if (!undoMenu.contains(e.target) && !undoBtn.contains(e.target)) {
+      undoMenu.classList.add('hidden');
+      markDirty();
+    }
+  }
 
   if (showStats) {
     const mr = statsModalRect(l);

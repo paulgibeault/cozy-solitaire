@@ -41,9 +41,6 @@
           <button id="btn-restart" class="dropdown-btn">
             <span class="icon">↩</span> Restart Game
           </button>
-          <button id="btn-undo" class="dropdown-btn">
-            <span class="icon">↶</span> Undo Move
-          </button>
         </div>
       </div>
       <div class="dropdown-divider"></div>
@@ -58,6 +55,22 @@
           </button>
         </div>
       </div>
+    </div>
+    </div>
+
+    <!-- Floating Undo UI -->
+    <div id="undo-wrapper">
+      <div id="undo-menu" class="undo-dropdown hidden">
+        <div class="dropdown-section">
+          <h4 class="dropdown-header">HISTORY</h4>
+          <div id="undo-list" class="dropdown-options">
+            <!-- Items injected by JS -->
+          </div>
+        </div>
+      </div>
+      <button id="btn-undo-floating" class="floating-btn">
+        <span class="icon">↶</span>
+      </button>
     </div>
   </div>
 

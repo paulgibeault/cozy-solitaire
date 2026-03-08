@@ -107,7 +107,7 @@ export function getAutoCompleteCard(state) {
   return null;
 }
 
-export function saveUndo(state) {
+export function saveUndo(state, actionDesc = 'Previous State') {
   state.history.push({
     tableau: state.tableau.map(c => c.map(card => ({ ...card }))),
     foundations: state.foundations.map(f => f.map(card => ({ ...card }))),
@@ -115,6 +115,7 @@ export function saveUndo(state) {
     waste: state.waste.map(card => ({ ...card })),
     moves: state.moves,
     stockPasses: state.stockPasses,
+    actionDesc: actionDesc,
   });
   if (state.history.length > 200) state.history.shift();
 }
@@ -131,9 +132,25 @@ export function undo(state) {
   return true;
 }
 
+export function undoTo(state, targetHistoryIndex) {
+  if (targetHistoryIndex < 0 || targetHistoryIndex >= state.history.length) return false;
+  const target = state.history[targetHistoryIndex];
+  state.tableau = target.tableau;
+  state.foundations = target.foundations;
+  state.stock = target.stock;
+  state.waste = target.waste;
+  state.moves = target.moves;
+  state.stockPasses = target.stockPasses;
+  
+  // Truncate history to the target point
+  state.history = state.history.slice(0, targetHistoryIndex);
+  return true;
+}
+
 // Deal from stock to waste (supports draw 1 or draw 3)
 export function dealStock(state) {
-  saveUndo(state);
+  const isRecycle = state.stock.length === 0;
+  saveUndo(state, isRecycle ? 'Recycled Waste' : 'Dealt Stock');
   if (state.stock.length === 0) {
     // Recycle waste to stock
     if (state.waste.length === 0) { state.history.pop(); return null; }
@@ -191,7 +208,8 @@ export function moveCards(state, fromType, fromIndex, cardIndex, toType, toIndex
     if (!canPlaceOnFoundation(card, state.foundations[toIndex])) return false;
   } else return false;
 
-  saveUndo(state);
+  const countStr = cards.length > 1 ? ` (${cards.length} cards)` : '';
+  saveUndo(state, `Moved ${card.value}${card.suit}${countStr}`);
 
   if (fromType === 'tableau') {
     state.tableau[fromIndex].splice(cardIndex);
