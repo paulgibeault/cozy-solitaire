@@ -26,8 +26,11 @@
           <span class="dropdown-caret">▼</span>
         </h1>
       </div>
-      <div id="header-stats">
-        ♣ <span id="time-display">0:00</span>  ·  <span id="moves-display">0</span> moves
+      <div id="header-stats" style="display: flex; align-items: center; gap: 12px;">
+        <button id="btn-help" style="background: none; border: none; cursor: pointer; font-size: 16px; opacity: 0.8; transition: opacity 0.2s; pointer-events: auto;" title="How to Play" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.8'">💡</button>
+        <div>
+          ♣ <span id="time-display">0:00</span>  ·  <span id="moves-display">0</span> moves
+        </div>
       </div>
     </header>
 
@@ -75,6 +78,15 @@
     </div>
     
     <input type="number" id="seed-input" class="hidden mode-seed-input" min="1" max="999999" placeholder="Random">
+    
+    <!-- Help Modal -->
+    <div id="help-modal" class="hidden" style="position: absolute; top:50%; left:50%; transform: translate(-50%, -50%); width: 85%; max-width: 400px; background: rgba(30, 41, 33, 0.98); backdrop-filter: blur(12px); border: 1px solid rgba(192, 168, 112, 0.4); border-radius: 8px; padding: 24px; color: #ede2c8; font-family: Georgia, serif; z-index: 1000; pointer-events: auto; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6); max-height: 80%; overflow-y: auto; display: flex; flex-direction: column;">
+      <h2 id="help-title" style="color: #c0a870; font-size: 20px; border-bottom: 1px solid rgba(192, 168, 112, 0.4); padding-bottom: 10px; margin-bottom: 15px; margin-top: 0; text-align: center;">How to Play</h2>
+      <div id="help-content" style="font-size: 14px; line-height: 1.5; display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px;">
+         <!-- Injected by JS -->
+      </div>
+      <button id="btn-close-help" style="margin-top: auto; width: 100%; padding: 12px; background: #4a3824; color: #f0e4cc; border: 1px solid #8a7050; border-radius: 6px; cursor: pointer; font-family: Georgia, serif; font-weight: bold; transition: background 0.2s;" onmouseover="this.style.background='#5a4830'" onmouseout="this.style.background='#4a3824'">Close Help</button>
+    </div>
   </div>
 
   <canvas id="game"></canvas>

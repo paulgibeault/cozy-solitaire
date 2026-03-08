@@ -68,6 +68,12 @@ export const MAX_CARD_W_PORTRAIT = 80;
 export const DROP_ZONE_EXPAND_X = 12;
 export const DROP_ZONE_EXPAND_Y = 20;
 
+export const VARIANTS = [
+  { id: 'klondike', label: 'Klondike' },
+  { id: 'freecell', label: 'FreeCell' },
+  { id: 'spider', label: 'Spider' }
+];
+
 // Game modes
 export const DRAW_MODES = [
   { id: 'draw1', label: 'Draw 1', drawCount: 1 },

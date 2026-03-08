@@ -133,8 +133,9 @@ export function recalcLayout() {
   canvas.style.height = h + 'px';
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-  // Calculate card size to fit 7 columns + gaps
-  const totalCols = TABLEAU_COLS;
+  // Calculate card size to fit columns + gaps dynamically based on the game rules
+  const config = (window.__gameState && window.__gameState.config) || { layoutCols: 7, layoutRows: 3 };
+  const totalCols = config.layoutCols;
   const gapCount = totalCols + 1;
   
   // Height constraint — solve for the largest card that fits a full tableau column.
@@ -166,9 +167,7 @@ export function recalcLayout() {
   // Final dimensions: take the smaller of width-constrained and height-constrained card sizes
   const isLandscape = w > h;
 
-  // We assume a 7-column grid layout as defined by Klondike rules for base scaling.
-  // In a fully generic system, the Rule Config would define the grid dimensions.
-  const cols = 7;
+  const cols = totalCols;
   let paddingX = isLandscape ? 20 : 10;
   let cardW = (w - (paddingX * 2) - ((cols - 1) * 10)) / cols;
 

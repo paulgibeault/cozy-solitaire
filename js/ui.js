@@ -19,7 +19,11 @@ export const UI = {
       movesDisplay: document.getElementById('moves-display'),
       seedDisplay: document.getElementById('seed-display'),
       seedValue: document.getElementById('seed-value'),
-      seedInput: document.getElementById('seed-input')
+      seedInput: document.getElementById('seed-input'),
+      btnHelp: document.getElementById('btn-help'),
+      helpModal: document.getElementById('help-modal'),
+      helpContent: document.getElementById('help-content'),
+      btnCloseHelp: document.getElementById('btn-close-help')
     };
 
     this.bindEvents();
@@ -56,6 +60,14 @@ export const UI = {
     this.elements.btnStats?.addEventListener('click', () => {
       this.closeDropdown();
       this.handlers.onToggleStats();
+    });
+
+    this.elements.btnHelp?.addEventListener('click', () => {
+      this.handlers.onShowHelp();
+    });
+
+    this.elements.btnCloseHelp?.addEventListener('click', () => {
+      this.elements.helpModal?.classList.add('hidden');
     });
 
     // Undo Floating UI Logic
@@ -135,6 +147,13 @@ export const UI = {
     this.elements.dropdown?.classList.add('hidden');
     if (this.elements.dropdownCaret) {
       this.elements.dropdownCaret.style.transform = 'rotate(0deg)';
+    }
+  },
+
+  showHelpModal(html) {
+    if (this.elements.helpContent && this.elements.helpModal) {
+      this.elements.helpContent.innerHTML = html;
+      this.elements.helpModal.classList.remove('hidden');
     }
   },
 

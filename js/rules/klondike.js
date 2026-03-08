@@ -2,6 +2,13 @@
 import { Zone } from '../zone.js';
 
 export const KlondikeRules = {
+  config: { layoutCols: 7, layoutRows: 3 },
+  helpHTML: `
+    <p><strong>Goal</strong>: Build all four suits from Ace to King on the <strong>Foundations</strong>.</p>
+    <p><strong>Tableau</strong>: Build columns down by alternating colors.</p>
+    <p><strong>Stock</strong>: Draw cards into the waste pile.</p>
+    <p><strong>Movement</strong>: Move face-up sequence stacks matching alternating colors. Only Kings can be moved to empty cells.</p>
+  `,
   // Define layout structure mathematically using a hypothetical grid or constraints
   // For renderer: Top margin = y:0. Tableau = y:1
   createZones() {

@@ -2,16 +2,24 @@
 import { createDeck, shuffleDeck } from './cards.js';
 import { TABLEAU_COLS, FOUNDATION_COUNT, VALUE_ORDER } from './constants.js';
 import { KlondikeRules } from './rules/klondike.js';
+import { FreeCellRules } from './rules/freecell.js';
+import { SpiderRules } from './rules/spider.js';
 
-export function createGameState(drawCount = 1, maxPasses = Infinity, seed = undefined) {
+export const GameRules = {
+  klondike: KlondikeRules,
+  freecell: FreeCellRules,
+  spider: SpiderRules,
+};
+
+export function createGameState(variant = 'klondike', options = {}, seed = undefined) {
   if (seed === undefined) {
     seed = Math.floor(Math.random() * 2147483647); // 31-bit integer seed
   }
   const deck = shuffleDeck(createDeck(), seed);
   
-  // Game Setup via Rules
-  const zones = KlondikeRules.createZones();
-  KlondikeRules.deal(zones, deck);
+  const rules = GameRules[variant] || KlondikeRules;
+  const zones = rules.createZones(options);
+  rules.deal(zones, deck, options);
 
   // Snapshot the initial deal for the Restart feature
   const initialZones = new Map();
@@ -26,24 +34,30 @@ export function createGameState(drawCount = 1, maxPasses = Infinity, seed = unde
     elapsed: 0,
     won: false,
     history: [],
-    drawCount,
-    maxPasses,
+    drawCount: options.drawCount || 1,
+    maxPasses: options.passes !== undefined ? options.passes : Infinity,
     stockPasses: 0, // how many times we've recycled
     initialZones,
     seed,
+    variant,
+    options,
+    config: rules.config || { layoutCols: 7, layoutRows: 3 },
   };
 }
 
 export function isWon(state) {
-  return KlondikeRules.isWon(state.zones);
+  const rules = GameRules[state.variant] || KlondikeRules;
+  return rules.isWon(state.zones);
 }
 
 export function allCardsFaceUp(state) {
-  return KlondikeRules.allCardsFaceUp(state.zones);
+  const rules = GameRules[state.variant] || KlondikeRules;
+  return rules.allCardsFaceUp(state.zones);
 }
 
 export function getAutoCompleteCard(state) {
-  return KlondikeRules.getAutoCompleteCard(state.zones);
+  const rules = GameRules[state.variant] || KlondikeRules;
+  return rules.getAutoCompleteCard(state.zones);
 }
 
 export function saveUndo(state, actionDesc = 'Previous State') {

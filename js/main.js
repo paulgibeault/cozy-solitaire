@@ -10,7 +10,7 @@ import { KlondikeRules } from './rules/klondike.js';
 import { loadStats, saveStats, saveGameState, loadGameState, clearGameState,
   loadModeSettings, saveModeSettings } from './storage.js';
 import { TABLEAU_COLS, FOUNDATION_COUNT, AUTO_COMPLETE_DELAY, COLORS,
-  DRAW_MODES, RECYCLE_MODES } from './constants.js';
+  DRAW_MODES, RECYCLE_MODES, VARIANTS } from './constants.js';
 import { UI } from './ui.js';
 
 const canvas = document.getElementById('game');
@@ -19,9 +19,13 @@ let state = null;
 // Mode settings — must be initialized before getGameTypeKey() is called
 let modeSettings = loadModeSettings();
 
-// Derive a unique key for the current game type (draw mode + recycle mode)
+// Derive a unique key for the current game type (draw mode + recycle mode, variant)
 function getGameTypeKey() {
-  return `${modeSettings.drawMode}_${modeSettings.recycleMode}`;
+  const v = modeSettings.variant || 'klondike';
+  if (v === 'klondike') {
+    return `${v}_${modeSettings.drawMode}_${modeSettings.recycleMode}`;
+  }
+  return v; // future variants will append their own specific modifiers here
 }
 
 let stats = loadStats(getGameTypeKey());
@@ -59,6 +63,17 @@ function init() {
       showStats = opening;
       if (opening) overlayJustOpened = true;
       markDirty();
+    },
+    onShowHelp: () => {
+      import('./game.js').then(({ GameRules }) => {
+         const variant = modeSettings.variant || 'klondike';
+         const rules = GameRules[variant];
+         if (rules && rules.helpHTML) {
+            UI.showHelpModal(rules.helpHTML);
+         } else {
+            UI.showHelpModal('<p>Rules coming soon.</p>');
+         }
+      });
     },
     getHistory: () => state?.history || [],
     onUndoTo: (index) => {
@@ -105,9 +120,19 @@ function newGame(countPrevious = true, seed = undefined) {
     stats.currentStreak = 0;
     saveStats(stats, getGameTypeKey());
   }
-  const drawMode = DRAW_MODES.find(m => m.id === modeSettings.drawMode) || DRAW_MODES[0];
-  const recycleMode = RECYCLE_MODES.find(m => m.id === modeSettings.recycleMode) || RECYCLE_MODES[0];
-  state = createGameState(drawMode.drawCount, recycleMode.passes, seed);
+  const variant = modeSettings.variant || 'klondike';
+  let options = {};
+  
+  if (variant === 'klondike') {
+    const drawMode = DRAW_MODES.find(m => m.id === modeSettings.drawMode) || DRAW_MODES[0];
+    const recycleMode = RECYCLE_MODES.find(m => m.id === modeSettings.recycleMode) || RECYCLE_MODES[0];
+    options = {
+       drawCount: drawMode.drawCount,
+       passes: recycleMode.passes
+    };
+  }
+  
+  state = createGameState(variant, options, seed);
   updateSeedDisplay();
   window.__gameState = state;
   recalcLayout();
@@ -520,17 +545,14 @@ function drawModeOverlay(l) {
   const cx = l.w / 2;
   const gap = 28;
 
-  // Calculate modal dimensions
-  const drawBtnW = 80, drawBtnH = 34;
-  const recBtnW = 90, recBtnH = 34;
-  const modalW = Math.min(340, l.w - 40);
-  const modalH = 36 + 22 + 16 + gap + drawBtnH + gap + 16 + gap + recBtnH + gap + 18 + gap + 36 + gap + 36;
+  const mr = modeModalRect(l);
+  const modalW = mr.w;
+  const modalH = mr.h;
   const cy = l.h / 2;
 
   drawModalBox(ctx, cx, cy, modalW, modalH);
 
   let y = cy - modalH / 2 + 36;
-
   drawText(cx, y, '▶  New Game Setup', 22, 'center');
 
   // Divider
@@ -540,29 +562,47 @@ function drawModeOverlay(l) {
   ctx.beginPath(); ctx.moveTo(cx - modalW/2 + 20, y); ctx.lineTo(cx + modalW/2 - 20, y); ctx.stroke();
   y += 20;
 
-  // Draw count
-  drawText(cx, y, 'Draw Count', 13, 'center');
+  // Variants
+  const activeVariant = modeSettings.variant || 'klondike';
+  drawText(cx, y, 'Game Variant', 13, 'center');
   y += gap;
-  const drawTotalW = DRAW_MODES.length * drawBtnW + (DRAW_MODES.length - 1) * 8;
-  let dx = cx - drawTotalW / 2;
-  for (const mode of DRAW_MODES) {
-    const isActive = modeSettings.drawMode === mode.id;
-    drawModeButton(dx, y, drawBtnW, drawBtnH, mode.label, isActive);
-    dx += drawBtnW + 8;
+  const valBtnW = 90, valBtnH = 34;
+  const valTotalW = VARIANTS.length * valBtnW + (VARIANTS.length - 1) * 8;
+  let vx = cx - valTotalW / 2;
+  for (const variant of VARIANTS) {
+    const isActive = activeVariant === variant.id;
+    drawModeButton(vx, y, valBtnW, valBtnH, variant.label, isActive);
+    vx += valBtnW + 8;
   }
-  y += drawBtnH + gap;
+  y += valBtnH + gap;
 
-  // Deck recycling
-  drawText(cx, y, 'Deck Passes', 13, 'center');
-  y += gap;
-  const recTotalW = RECYCLE_MODES.length * recBtnW + (RECYCLE_MODES.length - 1) * 8;
-  let rx = cx - recTotalW / 2;
-  for (const mode of RECYCLE_MODES) {
-    const isActive = modeSettings.recycleMode === mode.id;
-    drawModeButton(rx, y, recBtnW, recBtnH, mode.label, isActive);
-    rx += recBtnW + 8;
+  if (activeVariant === 'klondike') {
+    // Draw count
+    drawText(cx, y, 'Draw Count', 13, 'center');
+    y += gap;
+    const drawBtnW = 80, drawBtnH = 34;
+    const drawTotalW = DRAW_MODES.length * drawBtnW + (DRAW_MODES.length - 1) * 8;
+    let dx = cx - drawTotalW / 2;
+    for (const mode of DRAW_MODES) {
+      const isActive = modeSettings.drawMode === mode.id;
+      drawModeButton(dx, y, drawBtnW, drawBtnH, mode.label, isActive);
+      dx += drawBtnW + 8;
+    }
+    y += drawBtnH + gap;
+
+    // Deck recycling
+    drawText(cx, y, 'Deck Passes', 13, 'center');
+    y += gap;
+    const recBtnW = 90, recBtnH = 34;
+    const recTotalW = RECYCLE_MODES.length * recBtnW + (RECYCLE_MODES.length - 1) * 8;
+    let rx = cx - recTotalW / 2;
+    for (const mode of RECYCLE_MODES) {
+      const isActive = modeSettings.recycleMode === mode.id;
+      drawModeButton(rx, y, recBtnW, recBtnH, mode.label, isActive);
+      rx += recBtnW + 8;
+    }
+    y += recBtnH + gap;
   }
-  y += recBtnH + gap;
 
   // Optional Seed Input
   drawText(cx, y - 10, 'Seed', 12, 'center');
@@ -571,7 +611,7 @@ function drawModeOverlay(l) {
   
   const seedInputVal = UI.getSeedInputValue();
   if (seedInputVal !== undefined) {
-    const seedInput = document.getElementById('seed-input'); // Hack to retain input position until fully abstracted, since position is dynamic
+    const seedInput = document.getElementById('seed-input'); 
     if (seedInput) {
       seedInput.style.left = `${cx - seedBoxW / 2}px`;
       seedInput.style.top = `${y}px`;
@@ -643,12 +683,25 @@ function statsModalRect(l) {
   return { x: l.w/2 - modalW/2, y: l.h/2 - modalH/2, w: modalW, h: modalH };
 }
 
-// Returns the bounding rect of the mode modal box
 function modeModalRect(l) {
   const gap = 28;
-  const drawBtnH = 34, recBtnH = 34;
-  const modalW = Math.min(340, l.w - 40);
-  const modalH = 36 + 22 + 16 + gap + drawBtnH + gap + 16 + gap + recBtnH + gap + 18 + gap + 36 + gap + 36;
+  const btnH = 34;
+  const isKlondike = (modeSettings.variant || 'klondike') === 'klondike';
+  const modalW = Math.min(350, l.w - 20);
+  
+  // Title(36) + Divider(20) = 56
+  // Variant Title(16) + Gap(12) + Btn(34) = 62
+  // Seed Title(16) + Gap(12) + Input(30) = 58
+  // New Game Btn(36) + Padding(20) = 56
+  
+  let modalH = 56 + 62 + 58 + 56;
+  
+  if (isKlondike) {
+     // Draw Count(16) + Gap(12) + Btn(34) = 62
+     // Passes(16) + Gap(12) + Btn(34) = 62
+     modalH += 124 + gap*2; // add extra gaps between sections
+  }
+  
   return { x: l.w/2 - modalW/2, y: l.h/2 - modalH/2, w: modalW, h: modalH };
 }
 
@@ -681,7 +734,6 @@ function overlayClickHandler(e) {
     const recBtnW = 90, recBtnH = 34;
     const modalW = mr.w;
 
-    // Click outside modal closes it
     if (!inRect(x, y, mr.x, mr.y, mr.w, mr.h)) {
       showModeSelect = false;
       UI.hideSeedInput();
@@ -690,42 +742,63 @@ function overlayClickHandler(e) {
       return;
     }
 
-    // Reconstruct y positions matching drawModeOverlay
-    let my = mr.y + 36 + 20 + 16 + 20; // title + divider area
-    // NOTE: When mode changes, reload stats for the new game type
-    // This reload happens in the New Game button handler below
+    let my = mr.y + 36 + 20 + 20; // title + divider area + gap
 
-    // Draw mode buttons
-    my += gap; // "Draw Count" label
-    const drawTotalW = DRAW_MODES.length * drawBtnW + (DRAW_MODES.length - 1) * 8;
-    let dx = cx - drawTotalW / 2;
-    for (const mode of DRAW_MODES) {
-      if (inRect(x, y, dx, my, drawBtnW, drawBtnH)) {
-        modeSettings.drawMode = mode.id;
+    // Variant buttons
+    my += gap; // "Game Variant" label
+    const valBtnW = 90, valBtnH = 34;
+    const valTotalW = VARIANTS.length * valBtnW + (VARIANTS.length - 1) * 8;
+    let vx = cx - valTotalW / 2;
+    for (const variant of VARIANTS) {
+      if (inRect(x, y, vx, my, valBtnW, valBtnH)) {
+        modeSettings.variant = variant.id;
         saveModeSettings(modeSettings);
         markDirty();
         e.stopPropagation();
         return;
       }
-      dx += drawBtnW + 8;
+      vx += valBtnW + 8;
     }
-    my += drawBtnH + gap;
+    my += valBtnH + gap;
 
-    // Recycle mode buttons
-    my += gap; // "Deck Passes" label
-    const recTotalW = RECYCLE_MODES.length * recBtnW + (RECYCLE_MODES.length - 1) * 8;
-    let rx = cx - recTotalW / 2;
-    for (const mode of RECYCLE_MODES) {
-      if (inRect(x, y, rx, my, recBtnW, recBtnH)) {
-        modeSettings.recycleMode = mode.id;
-        saveModeSettings(modeSettings);
-        markDirty();
-        e.stopPropagation();
-        return;
+    const activeVariant = modeSettings.variant || 'klondike';
+    
+    if (activeVariant === 'klondike') {
+      const drawBtnW = 80, drawBtnH = 34;
+      const recBtnW = 90, recBtnH = 34;
+
+      // Draw mode buttons
+      my += gap; // "Draw Count" label
+      const drawTotalW = DRAW_MODES.length * drawBtnW + (DRAW_MODES.length - 1) * 8;
+      let dx = cx - drawTotalW / 2;
+      for (const mode of DRAW_MODES) {
+        if (inRect(x, y, dx, my, drawBtnW, drawBtnH)) {
+          modeSettings.drawMode = mode.id;
+          saveModeSettings(modeSettings);
+          markDirty();
+          e.stopPropagation();
+          return;
+        }
+        dx += drawBtnW + 8;
       }
-      rx += recBtnW + 8;
+      my += drawBtnH + gap;
+
+      // Recycle mode buttons
+      my += gap; // "Deck Passes" label
+      const recTotalW = RECYCLE_MODES.length * recBtnW + (RECYCLE_MODES.length - 1) * 8;
+      let rx = cx - recTotalW / 2;
+      for (const mode of RECYCLE_MODES) {
+        if (inRect(x, y, rx, my, recBtnW, recBtnH)) {
+          modeSettings.recycleMode = mode.id;
+          saveModeSettings(modeSettings);
+          markDirty();
+          e.stopPropagation();
+          return;
+        }
+        rx += recBtnW + 8;
+      }
+      my += recBtnH + gap;
     }
-    my += recBtnH + gap;
 
     // Seed Box
     const seedBoxH = 30;
@@ -746,9 +819,8 @@ function overlayClickHandler(e) {
       
       newGame(true, explicitSeed);
       UI.clearSeedInput();
-      window._pendingSeed = ""; // keep consistent
+      window._pendingSeed = ""; 
       
-      // Reload stats for the potentially new game type
       stats = loadStats(getGameTypeKey());
       markDirty();
       e.stopPropagation();

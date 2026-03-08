@@ -12,6 +12,7 @@ const defaultStats = {
 };
 
 const defaultMode = {
+  variant: 'klondike',
   drawMode: 'draw1',
   recycleMode: 'unlimited',
 };

@@ -302,3 +302,7 @@ canvas {
   -moz-appearance: textfield;
   appearance: textfield;
 }
+
+#help-modal.hidden {
+  display: none !important;
+}
