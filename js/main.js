@@ -1,6 +1,6 @@
 // main.js — Entry point, game loop, state machine
 import { initRenderer, recalcLayout, getLayout, clear, drawCardBack, drawCardFace,
-  drawEmptyPile, drawHighlight, drawText, getCardPosition,
+  drawEmptyPile, drawHighlight, drawText, getCardPosition, drawButton,
   spawnWinParticles, updateAndDrawParticles } from './renderer.js';
 import { initInput, getDragState } from './input.js';
 import { updateTweens, hasTweens } from './tween.js';
@@ -55,7 +55,6 @@ function init() {
     }
   });
 
-  document.getElementById('btn-new').addEventListener('click', () => { dropdown.classList.add('hidden'); document.querySelector('.dropdown-caret').style.transform = 'rotate(0deg)'; newGame(true); markDirty(); });
   document.getElementById('btn-restart').addEventListener('click', () => { dropdown.classList.add('hidden'); document.querySelector('.dropdown-caret').style.transform = 'rotate(0deg)'; restartGame(); markDirty(); });
   
   // Floating Undo Button Logic
@@ -652,7 +651,7 @@ function drawModeOverlay(l) {
 
   let y = cy - modalH / 2 + 36;
 
-  drawText(cx, y, '♦  Game Mode', 22, 'center');
+  drawText(cx, y, '▶  New Game Setup', 22, 'center');
 
   // Divider
   y += 20;

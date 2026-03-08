@@ -346,7 +346,31 @@ export function drawHighlight(x, y) {
   ctx.stroke();
 }
 
-// Replaced canvas buttons with HTML UI in index.html
+export function drawButton(x, y, w, h, text, fontSize = 14) {
+  const r = 8;
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+  ctx.fillStyle = COLORS.buttonBg;
+  ctx.fill();
+  ctx.strokeStyle = COLORS.buttonBorder;
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  
+  ctx.fillStyle = COLORS.buttonText;
+  ctx.font = `bold ${fontSize}px Georgia, serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, x + w / 2, y + h / 2 + 1);
+}
 
 export function drawText(x, y, text, size = 14, align = 'left') {
   ctx.fillStyle = COLORS.text;
