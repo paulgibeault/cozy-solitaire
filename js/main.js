@@ -99,11 +99,29 @@ function init() {
 
   const handleUndoStart = (e) => {
     if (e.pointerType === 'mouse' && e.button !== 0) return;
+    
+    // If the menu is open, this click should just close it without triggering undo
+    if (!undoMenu.classList.contains('hidden')) {
+      undoMenu.classList.add('hidden');
+      if (undoTimer) { clearTimeout(undoTimer); undoTimer = null; }
+      undoLongPressed = true; // prevent undo action
+      return;
+    }
+
     undoLongPressed = false;
     if (undoTimer) clearTimeout(undoTimer);
     undoTimer = setTimeout(showUndoMenu, 400);
-    undoMenu.classList.add('hidden');
   };
+
+  // Close menu when clicking anywhere else
+  window.addEventListener('pointerdown', (e) => {
+    if (!undoMenu.classList.contains('hidden')) {
+      if (!undoMenu.contains(e.target) && !undoBtn.contains(e.target)) {
+        undoMenu.classList.add('hidden');
+        markDirty();
+      }
+    }
+  });
 
   const handleUndoEnd = (e) => {
     if (undoTimer) {
@@ -748,15 +766,6 @@ function overlayClickHandler(e) {
 
   const l = getLayout();
   const x = e.clientX, y = e.clientY;
-
-  const undoMenu = document.getElementById('undo-menu');
-  const undoBtn = document.getElementById('btn-undo-floating');
-  if (!undoMenu.classList.contains('hidden')) {
-    if (!undoMenu.contains(e.target) && !undoBtn.contains(e.target)) {
-      undoMenu.classList.add('hidden');
-      markDirty();
-    }
-  }
 
   if (showStats) {
     const mr = statsModalRect(l);
