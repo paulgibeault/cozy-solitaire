@@ -11,6 +11,7 @@ import { loadStats, saveStats, saveGameState, loadGameState, clearGameState,
   loadModeSettings, saveModeSettings } from './storage.js';
 import { TABLEAU_COLS, FOUNDATION_COUNT, AUTO_COMPLETE_DELAY, COLORS,
   DRAW_MODES, RECYCLE_MODES } from './constants.js';
+import { UI } from './ui.js';
 
 const canvas = document.getElementById('game');
 let state = null;
@@ -39,139 +40,40 @@ function init() {
   initInput(canvas, handleAction, markDirty);
   window.addEventListener('resize', () => { recalcLayout(); markDirty(); });
 
-  // Bind UI Events
-  const dropdown = document.getElementById('logo-dropdown');
-  document.getElementById('app-title-container').addEventListener('click', (e) => {
-    e.stopPropagation();
-    dropdown.classList.toggle('hidden');
-    const caret = document.querySelector('.dropdown-caret');
-    caret.style.transform = dropdown.classList.contains('hidden') ? 'rotate(0deg)' : 'rotate(180deg)';
-  });
-
-  window.addEventListener('click', (e) => {
-    if (!dropdown.contains(e.target) && !document.getElementById('app-title-container').contains(e.target)) {
-      dropdown.classList.add('hidden');
-      document.querySelector('.dropdown-caret').style.transform = 'rotate(0deg)';
-    }
-  });
-
-  document.getElementById('btn-restart').addEventListener('click', () => { dropdown.classList.add('hidden'); document.querySelector('.dropdown-caret').style.transform = 'rotate(0deg)'; restartGame(); markDirty(); });
-  
-  // Floating Undo Button Logic
-  const undoBtn = document.getElementById('btn-undo-floating');
-  const undoMenu = document.getElementById('undo-menu');
-  const undoList = document.getElementById('undo-list');
-  let undoTimer = null;
-  let undoLongPressed = false;
-
-  const showUndoMenu = () => {
-    undoLongPressed = true;
-    undoList.innerHTML = '';
-    
-    if (state.history.length === 0) {
-      const empty = document.createElement('div');
-      empty.className = 'dropdown-btn';
-      empty.style.color = '#888';
-      empty.style.cursor = 'default';
-      empty.innerText = 'No history available';
-      undoList.appendChild(empty);
-    } else {
-      // Show newest first (reverse order of history array)
-      for (let i = state.history.length - 1; i >= 0; i--) {
-        const item = state.history[i];
-        const btn = document.createElement('button');
-        btn.className = 'dropdown-btn';
-        btn.innerHTML = `<span class="icon">↶</span> ${item.actionDesc || 'Previous State'} <span style="font-size: 10px; color: #888; margin-left: auto;">[${item.moves}]</span>`;
-        btn.onclick = (e) => {
-          e.stopPropagation();
-          undoTo(state, i);
-          saveGameState(serializeState(state));
-          undoMenu.classList.add('hidden');
-          markDirty();
-        };
-        undoList.appendChild(btn);
+  UI.init({
+    onRestart: () => { restartGame(); markDirty(); },
+    onToggleMode: () => {
+      if (showStats) showStats = false;
+      const opening = !showModeSelect;
+      showModeSelect = opening;
+      if (!opening) UI.hideSeedInput();
+      if (opening) overlayJustOpened = true;
+      markDirty();
+    },
+    onToggleStats: () => {
+      if (showModeSelect) {
+        showModeSelect = false;
+        UI.hideSeedInput();
       }
-    }
-    undoMenu.classList.remove('hidden');
-    overlayJustOpened = true; 
-  };
-
-  const handleUndoStart = (e) => {
-    if (e.pointerType === 'mouse' && e.button !== 0) return;
-    
-    // If the menu is open, this click should just close it without triggering undo
-    if (!undoMenu.classList.contains('hidden')) {
-      undoMenu.classList.add('hidden');
-      if (undoTimer) { clearTimeout(undoTimer); undoTimer = null; }
-      undoLongPressed = true; // prevent undo action
-      return;
-    }
-
-    undoLongPressed = false;
-    if (undoTimer) clearTimeout(undoTimer);
-    undoTimer = setTimeout(showUndoMenu, 400);
-  };
-
-  // Close menu when clicking anywhere else
-  window.addEventListener('pointerdown', (e) => {
-    if (!undoMenu.classList.contains('hidden')) {
-      if (!undoMenu.contains(e.target) && !undoBtn.contains(e.target)) {
-        undoMenu.classList.add('hidden');
+      const opening = !showStats;
+      showStats = opening;
+      if (opening) overlayJustOpened = true;
+      markDirty();
+    },
+    getHistory: () => state?.history || [],
+    onUndoTo: (index) => {
+      undoTo(state, index);
+      saveGameState(serializeState(state));
+      markDirty();
+    },
+    onUndo: () => {
+      if (undo(state)) {
+        saveGameState(serializeState(state));
         markDirty();
       }
-    }
-  });
-
-  const handleUndoEnd = (e) => {
-    if (undoTimer) {
-      clearTimeout(undoTimer);
-      undoTimer = null;
-      if (!undoLongPressed && (e.target === undoBtn || undoBtn.contains(e.target))) {
-        if (undo(state)) {
-          saveGameState(serializeState(state));
-          markDirty();
-        }
-      }
-    }
-  };
-
-  undoBtn.addEventListener('pointerdown', handleUndoStart);
-  window.addEventListener('pointerup', handleUndoEnd);
-  undoBtn.addEventListener('contextmenu', e => e.preventDefault());
-  
-  document.getElementById('btn-stats').addEventListener('click', () => {
-    dropdown.classList.add('hidden');
-    document.querySelector('.dropdown-caret').style.transform = 'rotate(0deg)';
-    if (showModeSelect) {
-      showModeSelect = false;
-      document.getElementById('seed-input')?.classList.add('hidden');
-      markDirty();
-      return;
-    }
-    const opening = !showStats;
-    showStats = opening;
-    showModeSelect = false;
-    document.getElementById('seed-input')?.classList.add('hidden');
-    if (opening) overlayJustOpened = true;
-    markDirty();
-  });
-  
-  document.getElementById('btn-mode').addEventListener('click', () => {
-    dropdown.classList.add('hidden');
-    document.querySelector('.dropdown-caret').style.transform = 'rotate(0deg)';
-    if (showStats) {
-      showStats = false;
-      markDirty();
-      return;
-    }
-    const opening = !showModeSelect;
-    showModeSelect = opening;
-    if (!opening) {
-      document.getElementById('seed-input')?.classList.add('hidden');
-    }
-    showStats = false;
-    if (opening) overlayJustOpened = true;
-    markDirty();
+    },
+    onOverlayOpened: () => { overlayJustOpened = true; },
+    onOverlayClosed: () => { markDirty(); }
   });
 
   // Pause the loop when the page/tab/app is hidden (screen off, app switched)
@@ -210,7 +112,7 @@ function newGame(countPrevious = true, seed = undefined) {
   autoCompleting = false;
   showStats = false;
   showModeSelect = false;
-  document.getElementById('seed-input')?.classList.add('hidden');
+  UI.hideSeedInput();
   clearGameState();
 }
 
@@ -234,13 +136,10 @@ function restartGame() {
 }
 
 function updateSeedDisplay() {
-  const display = document.getElementById('seed-display');
-  const span = document.getElementById('seed-value');
   if (state && state.seed !== undefined) {
-    span.innerText = state.seed;
-    display.classList.remove('hidden');
+    UI.updateSeed(state.seed);
   } else {
-    display.classList.add('hidden');
+    UI.updateSeed(undefined);
   }
 }
 
@@ -417,10 +316,7 @@ function render(dt) {
   clear();
 
   // Update HTML header timer and moves
-  const secs = Math.floor(state.elapsed / 1000);
-  const mins = Math.floor(secs / 60);
-  document.getElementById('time-display').innerText = `${mins}:${(secs % 60).toString().padStart(2, '0')}`;
-  document.getElementById('moves-display').innerText = state.moves;
+  UI.updateHeader(state.elapsed, state.moves);
 
   // Stock
   if (state.stock.length > 0) {
@@ -709,13 +605,16 @@ function drawModeOverlay(l) {
   const seedBoxW = 160;
   const seedBoxH = 30;
   
-  const seedInput = document.getElementById('seed-input');
-  if (seedInput) {
-    seedInput.style.left = `${cx - seedBoxW / 2}px`;
-    seedInput.style.top = `${y}px`;
-    if (seedInput.classList.contains('hidden')) {
-      seedInput.classList.remove('hidden');
-      seedInput.value = window._pendingSeed || '';
+  const seedInputVal = UI.getSeedInputValue();
+  if (seedInputVal !== undefined) {
+    const seedInput = document.getElementById('seed-input'); // Hack to retain input position until fully abstracted, since position is dynamic
+    if (seedInput) {
+      seedInput.style.left = `${cx - seedBoxW / 2}px`;
+      seedInput.style.top = `${y}px`;
+      if (seedInput.classList.contains('hidden')) {
+        seedInput.classList.remove('hidden');
+        seedInput.value = window._pendingSeed || '';
+      }
     }
   }
   y += gap + seedBoxH;
@@ -821,7 +720,7 @@ function overlayClickHandler(e) {
     // Click outside modal closes it
     if (!inRect(x, y, mr.x, mr.y, mr.w, mr.h)) {
       showModeSelect = false;
-      document.getElementById('seed-input')?.classList.add('hidden');
+      UI.hideSeedInput();
       markDirty();
       e.stopPropagation();
       return;
@@ -872,9 +771,9 @@ function overlayClickHandler(e) {
     const btnW = modalW - 48;
     if (inRect(x, y, cx - btnW / 2, my, btnW, 36)) {
       showModeSelect = false;
-      document.getElementById('seed-input')?.classList.add('hidden');
+      UI.hideSeedInput();
       
-      const seedInputVal = document.getElementById('seed-input')?.value;
+      const seedInputVal = UI.getSeedInputValue();
       let explicitSeed = seedInputVal ? parseInt(seedInputVal, 10) : undefined;
       if (explicitSeed !== undefined) {
         if (isNaN(explicitSeed)) explicitSeed = undefined;
@@ -882,9 +781,7 @@ function overlayClickHandler(e) {
       }
       
       newGame(true, explicitSeed);
-      if (document.getElementById('seed-input')) {
-        document.getElementById('seed-input').value = ""; // clear after starting
-      }
+      UI.clearSeedInput();
       window._pendingSeed = ""; // keep consistent
       
       // Reload stats for the potentially new game type

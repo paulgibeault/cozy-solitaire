@@ -34,6 +34,11 @@ let cardBackCache = null;  // OffscreenCanvas or regular canvas
 let cardBackCacheW = 0;
 let cardBackCacheH = 0;
 function invalidateCardBackCache() { cardBackCache = null; }
+
+// --- Offscreen card-face texture cache ---
+let cardFaceCache = new Map();
+function invalidateCardFaceCache() { cardFaceCache.clear(); }
+
 function getCardBackCache(cardW, cardH, radius) {
   if (cardBackCache && cardBackCacheW === cardW && cardBackCacheH === cardH) return cardBackCache;
   // Create (or re-create) the offscreen canvas
@@ -118,6 +123,7 @@ export function initRenderer(c) {
 
 export function recalcLayout() {
   invalidateCardBackCache();
+  invalidateCardFaceCache();
   const dpr = window.devicePixelRatio || 1;
   const w = window.innerWidth;
   const h = window.innerHeight;
@@ -259,59 +265,75 @@ export function drawCardBack(x, y, alpha = 1) {
   ctx.restore();
 }
 
+function getCardFaceCache(cardW, cardH, radius, fontSize, suitSize, centerSuitSize, card) {
+  const cacheKey = `${card.id}_${cardW}_${cardH}`;
+  if (cardFaceCache.has(cacheKey)) {
+    return cardFaceCache.get(cacheKey);
+  }
+
+  const c = document.createElement('canvas');
+  c.width = cardW + 4;   // +4 for shadow bleed
+  c.height = cardH + 4;
+  const cx = c.getContext('2d');
+
+  // Cheap fake shadow — no shadowBlur GPU pass
+  cx.fillStyle = 'rgba(0,0,0,0.22)';
+  _roundRectPath(cx, 2, 2, cardW, cardH, radius);
+  cx.fill();
+
+  // Card face
+  _roundRectPath(cx, 0, 0, cardW, cardH, radius);
+  cx.fillStyle = COLORS.cardFace;
+  cx.fill();
+
+  // Border
+  _roundRectPath(cx, 0, 0, cardW, cardH, radius);
+  cx.strokeStyle = COLORS.cardBorder;
+  cx.lineWidth = 1;
+  cx.stroke();
+
+  const color = card.color === 'red' ? COLORS.red : COLORS.black;
+  cx.fillStyle = color;
+
+  // Top-left value
+  cx.font = `bold ${fontSize}px Georgia, serif`;
+  cx.textAlign = 'left';
+  cx.textBaseline = 'top';
+  cx.fillText(card.value, 5, 4);
+
+  // Top-left suit
+  cx.font = `${suitSize}px serif`;
+  cx.fillText(card.suit, 5, fontSize + 2);
+
+  // Bottom-right (inverted)
+  cx.save();
+  cx.translate(cardW - 5, cardH - 4);
+  cx.rotate(Math.PI);
+  cx.font = `bold ${fontSize}px Georgia, serif`;
+  cx.textAlign = 'left';
+  cx.textBaseline = 'top';
+  cx.fillText(card.value, 0, 0);
+  cx.font = `${suitSize}px serif`;
+  cx.fillText(card.suit, 0, fontSize + 2);
+  cx.restore();
+
+  // Center suit
+  cx.font = `${centerSuitSize}px serif`;
+  cx.textAlign = 'center';
+  cx.textBaseline = 'middle';
+  cx.fillText(card.suit, cardW / 2, cardH / 2);
+
+  cardFaceCache.set(cacheKey, c);
+  return c;
+}
 
 export function drawCardFace(x, y, card, alpha = 1) {
   const { cardW, cardH, radius, fontSize, suitSize, centerSuitSize } = layout;
+  const cached = getCardFaceCache(cardW, cardH, radius, fontSize, suitSize, centerSuitSize, card);
+  
   ctx.save();
-  ctx.globalAlpha = alpha;
-
-  // Cheap fake shadow — no shadowBlur GPU pass
-  ctx.fillStyle = 'rgba(0,0,0,0.22)';
-  roundRect(x + 2, y + 2, cardW, cardH, radius);
-  ctx.fill();
-
-  // Card face
-  roundRect(x, y, cardW, cardH, radius);
-  ctx.fillStyle = COLORS.cardFace;
-  ctx.fill();
-
-  // Border
-  roundRect(x, y, cardW, cardH, radius);
-  ctx.strokeStyle = COLORS.cardBorder;
-  ctx.lineWidth = 1;
-  ctx.stroke();
-
-  const color = card.color === 'red' ? COLORS.red : COLORS.black;
-  ctx.fillStyle = color;
-
-  // Top-left value
-  ctx.font = `bold ${fontSize}px Georgia, serif`;
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'top';
-  ctx.fillText(card.value, x + 5, y + 4);
-
-  // Top-left suit
-  ctx.font = `${suitSize}px serif`;
-  ctx.fillText(card.suit, x + 5, y + fontSize + 2);
-
-  // Bottom-right (inverted)
-  ctx.save();
-  ctx.translate(x + cardW - 5, y + cardH - 4);
-  ctx.rotate(Math.PI);
-  ctx.font = `bold ${fontSize}px Georgia, serif`;
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'top';
-  ctx.fillText(card.value, 0, 0);
-  ctx.font = `${suitSize}px serif`;
-  ctx.fillText(card.suit, 0, fontSize + 2);
-  ctx.restore();
-
-  // Center suit
-  ctx.font = `${centerSuitSize}px serif`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(card.suit, x + cardW / 2, y + cardH / 2);
-
+  if (alpha !== 1) ctx.globalAlpha = alpha;
+  ctx.drawImage(cached, x - 2, y - 2);
   ctx.restore();
 }
 

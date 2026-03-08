@@ -1,6 +1,7 @@
 // game.js — Game logic (rules, moves, win detection)
 import { createDeck, shuffleDeck } from './cards.js';
 import { TABLEAU_COLS, FOUNDATION_COUNT, VALUE_ORDER } from './constants.js';
+import { KlondikeRules } from './rules/klondike.js';
 
 export function createGameState(drawCount = 1, maxPasses = Infinity, seed = undefined) {
   if (seed === undefined) {
@@ -50,33 +51,20 @@ export function createGameState(drawCount = 1, maxPasses = Infinity, seed = unde
 }
 
 export function canPlaceOnTableau(card, column) {
-  if (column.length === 0) return card.value === 'K';
-  const top = column[column.length - 1];
-  if (!top.faceUp) return false;
-  return top.order === card.order + 1 && top.color !== card.color;
+  return KlondikeRules.canPlaceOnTableau(card, column);
 }
 
 export function canPlaceOnFoundation(card, foundation) {
-  if (foundation.length === 0) return card.value === 'A';
-  const top = foundation[foundation.length - 1];
-  return top.suit === card.suit && card.order === top.order + 1;
+  return KlondikeRules.canPlaceOnFoundation(card, foundation);
 }
 
 // Find which foundation a card can go to, or -1
 export function findFoundationFor(card, foundations) {
-  for (let i = 0; i < foundations.length; i++) {
-    if (canPlaceOnFoundation(card, foundations[i])) return i;
-  }
-  if (card.value === 'A') {
-    for (let i = 0; i < foundations.length; i++) {
-      if (foundations[i].length === 0) return i;
-    }
-  }
-  return -1;
+  return KlondikeRules.findFoundationFor(card, foundations);
 }
 
 export function isWon(state) {
-  return state.foundations.every(f => f.length === 13);
+  return KlondikeRules.isWon(state);
 }
 
 export function allCardsFaceUp(state) {
@@ -89,26 +77,7 @@ export function allCardsFaceUp(state) {
 }
 
 export function getAutoCompleteCard(state) {
-  const minFound = Math.min(...state.foundations.map(f => f.length === 0 ? 0 : f[f.length - 1].order));
-
-  if (state.waste.length > 0) {
-    const card = state.waste[state.waste.length - 1];
-    const fi = findFoundationFor(card, state.foundations);
-    if (fi >= 0 && card.order <= minFound + 2) {
-      return { source: 'waste', card, foundationIndex: fi };
-    }
-  }
-  for (let i = 0; i < state.tableau.length; i++) {
-    const col = state.tableau[i];
-    if (col.length === 0) continue;
-    const card = col[col.length - 1];
-    if (!card.faceUp) continue;
-    const fi = findFoundationFor(card, state.foundations);
-    if (fi >= 0 && card.order <= minFound + 2) {
-      return { source: 'tableau', colIndex: i, card, foundationIndex: fi };
-    }
-  }
-  return null;
+  return KlondikeRules.getAutoCompleteCard(state);
 }
 
 export function saveUndo(state, actionDesc = 'Previous State') {
