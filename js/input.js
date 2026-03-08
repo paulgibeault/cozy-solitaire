@@ -70,12 +70,8 @@ function handleStart(x, y) {
   }
 
   // Immediate button actions (no drag)
-  if (hit.source === 'stock') {
+  if (hit.sourceZoneId === 'stock') {
     onAction({ type: 'tapStock' });
-    return;
-  }
-  if (hit.source === 'button') {
-    onAction({ type: 'button', button: hit.button });
     return;
   }
 
@@ -118,75 +114,44 @@ function handleEnd(x, y) {
 function hitTest(x, y) {
   const l = getLayout();
   const state = window.__gameState;
-  if (!state) return null;
+  if (!state || !state.zones) return null;
 
-  // Buttons — use generous touch targets (minimum 44px)
-  const btnW = 60, btnH = 28;
-  const btnPad = 8; // extra hit area padding
+  // We hit-test zones in reverse (topmost visually to bottommost)
+  // For Klondike: Tableau > Waste > Foundations > Stock
+  const checkOrder = [];
+  for (let i = 0; i < 7; i++) checkOrder.push(`tableau-${i}`);
+  for (let i = 0; i < 4; i++) checkOrder.push(`foundation-${i}`);
+  checkOrder.push('waste');
+  checkOrder.push('stock');
 
-  // Stats button
-  const statsX = 8, statsW = btnW + 10;
-  if (inRect(x, y, statsX - btnPad, l.buttonY - btnPad, statsW + btnPad * 2, btnH + btnPad * 2)) {
-    return { source: 'button', button: 'stats' };
-  }
-  // Mode button (next to stats)
-  const modeX = statsX + statsW + 6, modeW = btnW + 10;
-  if (inRect(x, y, modeX - btnPad, l.buttonY - btnPad, modeW + btnPad * 2, btnH + btnPad * 2)) {
-    return { source: 'button', button: 'mode' };
-  }
-  // Undo button
-  const undoX = l.w - btnW * 3 - 22;
-  if (inRect(x, y, undoX - btnPad, l.buttonY - btnPad, btnW + btnPad * 2, btnH + btnPad * 2)) {
-    return { source: 'button', button: 'undo' };
-  }
-  // Restart button
-  const restartX = l.w - btnW * 2 - 14;
-  if (inRect(x, y, restartX - btnPad, l.buttonY - btnPad, btnW + btnPad * 2, btnH + btnPad * 2)) {
-    return { source: 'button', button: 'restart' };
-  }
-  // New game button
-  const newX = l.w - btnW - 8;
-  if (inRect(x, y, newX - btnPad, l.buttonY - btnPad, btnW + btnPad * 2, btnH + btnPad * 2)) {
-    return { source: 'button', button: 'new' };
-  }
+  for (const zoneId of checkOrder) {
+      const zone = state.zones.get(zoneId);
+      const pos = l.zones.get(zoneId);
+      if (!zone || !pos) continue;
 
-  // Stock
-  if (inRect(x, y, l.stockX, l.stockY, l.cardW, l.cardH)) {
-    return { source: 'stock' };
-  }
-
-  // Waste — in draw-3 mode, show top 3 fanned out; only top card is grabbable
-  if (state.waste.length > 0 && inRect(x, y, l.wasteX, l.wasteY, l.cardW + (state.drawCount > 1 ? 30 : 0), l.cardH)) {
-    return { source: 'waste', colIndex: 0, cardIndex: state.waste.length - 1 };
-  }
-
-  // Foundations
-  for (let i = 0; i < FOUNDATION_COUNT; i++) {
-    if (inRect(x, y, l.foundationX[i], l.foundationY, l.cardW, l.cardH)) {
-      if (state.foundations[i].length > 0) {
-        return { source: 'foundation', colIndex: i, cardIndex: state.foundations[i].length - 1 };
+      if (zone.isEmpty()) {
+          if (inRect(x, y, pos.x, pos.y, l.cardW, l.cardH)) {
+              return { sourceZoneId: zoneId };
+          }
+          continue;
       }
-      return { source: 'foundationEmpty', colIndex: i };
-    }
-  }
 
-  // Tableau — check from bottom (topmost visually) up
-  for (let col = 0; col < TABLEAU_COLS; col++) {
-    const tcol = state.tableau[col];
-    if (tcol.length === 0) {
-      if (inRect(x, y, l.tableauX[col], l.tableauY, l.cardW, l.cardH)) {
-        return { source: 'tableauEmpty', colIndex: col };
+      // Hit test cards in the zone from top to bottom
+      for (let i = zone.cards.length - 1; i >= 0; i--) {
+          const cardPos = getCardPosition(state, zoneId, i);
+          
+          let h = l.cardH;
+          if (i !== zone.cards.length - 1) {
+              // If it's not the top card, the hit height is just the overlap
+              if (zone.type === 'fanDown') {
+                  h = zone.cards[i].faceUp ? l.overlapDown : l.overlapDown * 0.4;
+              }
+          }
+
+          if (inRect(x, y, cardPos.x, cardPos.y, l.cardW, h)) {
+               return { sourceZoneId: zoneId, cardIndex: i };
+          }
       }
-      continue;
-    }
-    for (let i = tcol.length - 1; i >= 0; i--) {
-      const pos = getCardPosition(state, 'tableau', col, i);
-      const h = (i === tcol.length - 1) ? l.cardH : (tcol[i].faceUp ? l.overlapUp : l.overlapDown);
-      if (inRect(x, y, pos.x, pos.y, l.cardW, h)) {
-        if (!tcol[i].faceUp) return null;
-        return { source: 'tableau', colIndex: col, cardIndex: i };
-      }
-    }
   }
 
   return null;
@@ -194,35 +159,38 @@ function hitTest(x, y) {
 
 function findDropTarget(x, y) {
   const l = getLayout();
-  const ex = DROP_ZONE_EXPAND_X;
-  const ey = DROP_ZONE_EXPAND_Y;
+  const state = window.__gameState;
+  if (!state || !state.zones) return null;
 
-  // Foundations — expanded hit zone
-  for (let i = 0; i < FOUNDATION_COUNT; i++) {
-    if (inRect(x, y,
-      l.foundationX[i] - ex, l.foundationY - ey,
-      l.cardW + ex * 2, l.cardH + ey * 2)) {
-      return { source: 'foundation', colIndex: i };
-    }
+  const ex = DROP_ZONE_EXPAND_X || 20;
+  const ey = DROP_ZONE_EXPAND_Y || 20;
+
+  // Drop targets for Klondike are Foundations and Tableaux
+  for (const [zoneId, zone] of state.zones.entries()) {
+      if (!zoneId.startsWith('tableau-') && !zoneId.startsWith('foundation-')) continue;
+
+      const pos = l.zones.get(zoneId);
+      if (!pos) continue;
+
+      if (zone.type === 'fanDown') {
+          // Expanded hit zone, generous vertical area
+          let bottomY = pos.y + l.cardH;
+          if (!zone.isEmpty()) {
+              const lastPos = getCardPosition(state, zoneId, zone.cards.length - 1);
+              bottomY = lastPos.y + l.cardH;
+          }
+          if (x >= pos.x - ex && x <= pos.x + l.cardW + ex &&
+              y >= pos.y - ey && y <= bottomY + ey) {
+             return { targetZoneId: zoneId };
+          }
+      } else {
+          // Standard stack expansion (Foundations)
+          if (inRect(x, y, pos.x - ex, pos.y - ey, l.cardW + ex * 2, l.cardH + ey * 2)) {
+             return { targetZoneId: zoneId };
+          }
+      }
   }
 
-  // Tableau — expanded hit zone, generous vertical area
-  for (let col = 0; col < TABLEAU_COLS; col++) {
-    const state = window.__gameState;
-    const tcol = state.tableau[col];
-    let bottomY;
-    if (tcol.length === 0) {
-      bottomY = l.tableauY + l.cardH;
-    } else {
-      const lastPos = getCardPosition(state, 'tableau', col, tcol.length - 1);
-      bottomY = lastPos.y + l.cardH;
-    }
-    // Expand the drop zone: wider and extends well below the last card
-    if (x >= l.tableauX[col] - ex && x <= l.tableauX[col] + l.cardW + ex &&
-        y >= l.tableauY - ey && y <= bottomY + l.cardH + ey) {
-      return { source: 'tableau', colIndex: col };
-    }
-  }
   return null;
 }
 

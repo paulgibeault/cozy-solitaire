@@ -1,10 +1,10 @@
-// renderer.js — Canvas drawing
 import { COLORS, SUIT_COLORS, CARD_ASPECT, CARD_RADIUS_RATIO, CARD_OVERLAP_FACEDOWN, CARD_OVERLAP_FACEUP,
-  PILE_GAP_RATIO, TOP_MARGIN_RATIO, FONT_RATIO, SUIT_FONT_RATIO, CENTER_SUIT_RATIO,
-  TABLEAU_COLS, FOUNDATION_COUNT } from './constants.js';
+  PILE_GAP_RATIO, TOP_MARGIN_RATIO, FONT_RATIO, SUIT_FONT_RATIO, CENTER_SUIT_RATIO, OVERLAP_RATIO,
+  TABLEAU_COLS, FOUNDATION_COUNT, MAX_CARD_W, MAX_CARD_W_PORTRAIT } from './constants.js';
 
 let canvas, ctx;
 let layout = {};
+let lastCacheKey = '';
 
 // Felt watermark — pure-path SVG, loaded once
 let logoImg = null;
@@ -164,57 +164,60 @@ export function recalcLayout() {
   const maxW = Math.floor((w - gapCount * 6) / totalCols * 0.92);
 
   // Final dimensions: take the smaller of width-constrained and height-constrained card sizes
-  const cardW = Math.min(maxW, heightCardW);
-  const cardH = Math.floor(cardW * CARD_ASPECT);
-  // Gap: proportional to card, but capped so columns don't spread apart on wide screens
-  const idealGap = Math.floor((w - cardW * totalCols) / (totalCols + 1));
-  const gap = Math.min(idealGap, Math.round(cardW * 0.18));
-  // Remaining space becomes equal side margins to center the tableau
-  const tableauTotalW = cardW * totalCols + gap * (totalCols - 1);
-  const sideMargin = Math.floor((w - tableauTotalW) / 2);
+  const isLandscape = w > h;
+
+  // We assume a 7-column grid layout as defined by Klondike rules for base scaling.
+  // In a fully generic system, the Rule Config would define the grid dimensions.
+  const cols = 7;
+  let paddingX = isLandscape ? 20 : 10;
+  let cardW = (w - (paddingX * 2) - ((cols - 1) * 10)) / cols;
+
+  if (isLandscape && cardW > MAX_CARD_W) cardW = MAX_CARD_W;
+  if (!isLandscape && cardW > MAX_CARD_W_PORTRAIT) cardW = MAX_CARD_W_PORTRAIT;
+
+  let cardH = cardW * CARD_ASPECT;
+
+  const overlapDown = cardH * OVERLAP_RATIO;
+  const overlapRight = cardW * 0.35;
+
+  let totalW = (cols * cardW) + ((cols - 1) * 10);
+  let startX = (w - totalW) / 2;
+
+  // For portrait, we might need smaller top margin
+  let topMargin = isLandscape ? 80 : 60;
+  let rowSpacing = cardH + 20; // Distance between gridY=0 and gridY=1
 
   layout = {
-    w, h, cardW, cardH, gap, sideMargin, dpr,
+    w, h,
+    cardW, cardH,
+    overlapDown,
+    overlapRight,
     radius: Math.round(cardW * CARD_RADIUS_RATIO),
-    overlapDown: Math.round(cardH * CARD_OVERLAP_FACEDOWN),
-    overlapUp: Math.round(cardH * CARD_OVERLAP_FACEUP),
-    topMargin: Math.max(50, Math.round(h * TOP_MARGIN_RATIO)),
     fontSize: Math.round(cardW * FONT_RATIO),
     suitSize: Math.round(cardW * SUIT_FONT_RATIO),
     centerSuitSize: Math.round(cardW * CENTER_SUIT_RATIO),
-    // Pile positions
-    stockX: 0, stockY: 0,
-    wasteX: 0, wasteY: 0,
-    foundationX: [], foundationY: 0,
-    tableauX: [], tableauY: 0,
-    // Button areas
-    buttonY: 0,
+    zones: new Map() // We'll compute absolute positions per-zone
   };
 
-  // Top row: stock at left margin, waste next to it, foundations flush right margin
-  const topY = layout.topMargin;
-  layout.stockX = sideMargin;
-  layout.stockY = topY;
-  layout.wasteX = sideMargin + cardW + gap;
-  layout.wasteY = topY;
-  layout.foundationY = topY;
-  layout.foundationX = [];
-  for (let i = 0; i < FOUNDATION_COUNT; i++) {
-    layout.foundationX.push(sideMargin + tableauTotalW - (FOUNDATION_COUNT - i) * cardW - (FOUNDATION_COUNT - i - 1) * gap);
+  // If game is initialized, map grid coordinates to screen coordinates
+  if (window.__gameState && window.__gameState.zones) {
+    for (const [id, zone] of window.__gameState.zones.entries()) {
+        const gx = zone.config.gridX || 0;
+        const gy = zone.config.gridY || 0;
+
+        const x = startX + (gx * (cardW + 10));
+        let y = topMargin + (gy * rowSpacing);
+
+        layout.zones.set(id, { x, y });
+    }
   }
 
-  // Tableau row
-  layout.tableauY = topY + cardH + Math.round(gap * 1.5);
-  layout.tableauX = [];
-  for (let i = 0; i < TABLEAU_COLS; i++) {
-    layout.tableauX.push(sideMargin + i * (cardW + gap));
+  const newCacheKey = `${cardW.toFixed(2)}x${cardH.toFixed(2)}`;
+  if (lastCacheKey !== newCacheKey) {
+    invalidateCardFaceCache();
+    invalidateCardBackCache(); // Also invalidate card back cache on dimension change
+    lastCacheKey = newCacheKey;
   }
-
-  // Buttons area (unused, but kept for compatibility if needed)
-  layout.buttonY = 4;
-
-
-  return layout;
 }
 
 export function getLayout() { return layout; }
@@ -330,7 +333,7 @@ function getCardFaceCache(cardW, cardH, radius, fontSize, suitSize, centerSuitSi
 export function drawCardFace(x, y, card, alpha = 1) {
   const { cardW, cardH, radius, fontSize, suitSize, centerSuitSize } = layout;
   const cached = getCardFaceCache(cardW, cardH, radius, fontSize, suitSize, centerSuitSize, card);
-  
+
   ctx.save();
   if (alpha !== 1) ctx.globalAlpha = alpha;
   ctx.drawImage(cached, x - 2, y - 2);
@@ -439,18 +442,29 @@ export function updateAndDrawParticles(dt) {
   return particles.length > 0;
 }
 
-export function getCardPosition(state, source, colIndex, cardIndex) {
+export function getCardPosition(state, sourceZoneId, cardIndex) {
   const l = layout;
-  if (source === 'stock') return { x: l.stockX, y: l.stockY };
-  if (source === 'waste') return { x: l.wasteX, y: l.wasteY };
-  if (source === 'foundation') return { x: l.foundationX[colIndex], y: l.foundationY };
-  if (source === 'tableau') {
-    const col = state.tableau[colIndex];
-    let yOff = 0;
-    for (let i = 0; i < cardIndex; i++) {
-      yOff += col[i].faceUp ? l.overlapUp : l.overlapDown;
-    }
-    return { x: l.tableauX[colIndex], y: l.tableauY + yOff };
+  const pos = l.zones.get(sourceZoneId);
+  if (!pos) return { x: 0, y: 0 };
+
+  const zone = state.zones.get(sourceZoneId);
+  if (!zone) return pos;
+
+  let dx = pos.x;
+  let dy = pos.y;
+
+  // Add offsets based on type for cards prior to this index
+  for (let i = 0; i < cardIndex; i++) {
+     const c = zone.cards[i];
+     if (zone.type === 'fanDown') {
+         dy += c.faceUp ? l.overlapDown : l.overlapDown * 0.4;
+     } else if (zone.type === 'fanRightLimited') {
+         const cardsToShow = state.drawCount;
+         if (i >= zone.cards.length - cardsToShow) {
+             dx += l.overlapRight;
+         }
+     }
   }
-  return { x: 0, y: 0 };
+
+  return { x: dx, y: dy };
 }

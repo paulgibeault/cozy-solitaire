@@ -1,52 +1,145 @@
-// klondike.js — Specific rules for Klondike Solitaire
+// klondike.js — Game Rules and Configuration for Klondike Solitaire
+import { Zone } from '../zone.js';
+
 export const KlondikeRules = {
-  canPlaceOnTableau(card, column) {
-    if (column.length === 0) return card.value === 'K';
-    const top = column[column.length - 1];
+  // Define layout structure mathematically using a hypothetical grid or constraints
+  // For renderer: Top margin = y:0. Tableau = y:1
+  createZones() {
+    const zones = new Map();
+
+    // 1 Stock
+    zones.set('stock', new Zone('stock', 'stack', { gridX: 0, gridY: 0, showCount: true, clickAction: 'deal' }));
+
+    // 1 Waste
+    zones.set('waste', new Zone('waste', 'fanRightLimited', { gridX: 1, gridY: 0 }));
+
+    // 4 Foundations
+    for (let i = 0; i < 4; i++) {
+        zones.set(`foundation-${i}`, new Zone(`foundation-${i}`, 'stack', { gridX: 3 + i, gridY: 0, label: ['♠', '♥', '♦', '♣'][i] }));
+    }
+
+    // 7 Tableau Columns
+    for (let i = 0; i < 7; i++) {
+        zones.set(`tableau-${i}`, new Zone(`tableau-${i}`, 'fanDown', { gridX: i, gridY: 1, label: 'K' }));
+    }
+
+    return zones;
+  },
+
+  // Initial deal logic maps deck cards to zones
+  deal(zones, deck) {
+    let idx = 0;
+    // Deal Tableau
+    for (let col = 0; col < 7; col++) {
+      const tableauZone = zones.get(`tableau-${col}`);
+      for (let row = 0; row <= col; row++) {
+        const card = { ...deck[idx++] };
+        card.faceUp = (row === col);
+        tableauZone.addCard(card);
+      }
+    }
+    // Rest to Stock
+    const stockZone = zones.get('stock');
+    for (; idx < deck.length; idx++) {
+      stockZone.addCard({ ...deck[idx], faceUp: false });
+    }
+  },
+
+  // -------------------------------------------------------------
+  // Validation Rules
+  // -------------------------------------------------------------
+  canDrop(card, targetZone, targetZoneId) {
+    if (targetZoneId.startsWith('tableau-')) {
+        return this.canPlaceOnTableau(card, targetZone.cards);
+    }
+    if (targetZoneId.startsWith('foundation-')) {
+        return this.canPlaceOnFoundation(card, targetZone.cards);
+    }
+    return false;
+  },
+
+  canPickUp(zone, cardIndex) {
+     if (zone.id.startsWith('tableau-')) {
+         return zone.cards[cardIndex].faceUp;
+     }
+     if (zone.id.startsWith('waste') || zone.id.startsWith('foundation-')) {
+         return cardIndex === zone.cards.length - 1; // Only top card
+     }
+     return false; // Cannot pick up from stock
+  },
+
+  canPlaceOnTableau(card, columnCards) {
+    if (columnCards.length === 0) return card.value === 'K';
+    const top = columnCards[columnCards.length - 1];
     if (!top.faceUp) return false;
     return top.order === card.order + 1 && top.color !== card.color;
   },
 
-  canPlaceOnFoundation(card, foundation) {
-    if (foundation.length === 0) return card.value === 'A';
-    const top = foundation[foundation.length - 1];
+  canPlaceOnFoundation(card, foundationCards) {
+    if (foundationCards.length === 0) return card.value === 'A';
+    const top = foundationCards[foundationCards.length - 1];
     return top.suit === card.suit && card.order === top.order + 1;
   },
 
-  findFoundationFor(card, foundations) {
-    for (let i = 0; i < foundations.length; i++) {
-        if (this.canPlaceOnFoundation(card, foundations[i])) return i;
+  findFoundationFor(card, zones) {
+    for (let i = 0; i < 4; i++) {
+        const fzone = zones.get(`foundation-${i}`);
+        if (this.canPlaceOnFoundation(card, fzone.cards)) return fzone.id;
     }
     if (card.value === 'A') {
-        for (let i = 0; i < foundations.length; i++) {
-            if (foundations[i].length === 0) return i;
+        for (let i = 0; i < 4; i++) {
+            const fzone = zones.get(`foundation-${i}`);
+            if (fzone.isEmpty()) return fzone.id;
         }
     }
-    return -1;
+    return null;
   },
 
-  isWon(state) {
-    return state.foundations.every(f => f.length === 13);
+  isWon(zones) {
+    for (let i = 0; i < 4; i++) {
+        if (zones.get(`foundation-${i}`).cards.length !== 13) return false;
+    }
+    return true;
   },
 
-  getAutoCompleteCard(state) {
-    const minFound = Math.min(...state.foundations.map(f => f.length === 0 ? 0 : f[f.length - 1].order));
+  allCardsFaceUp(zones) {
+    for (const [id, zone] of zones.entries()) {
+        if (id === 'stock' || id === 'waste') {
+            if (!zone.isEmpty()) return false;
+            continue;
+        }
+        if (id.startsWith('tableau-')) {
+            for (const card of zone.cards) {
+                if (!card.faceUp) return false;
+            }
+        }
+    }
+    return true;
+  },
 
-    if (state.waste.length > 0) {
-      const card = state.waste[state.waste.length - 1];
-      const fi = this.findFoundationFor(card, state.foundations);
-      if (fi >= 0 && card.order <= minFound + 2) {
-        return { source: 'waste', card, foundationIndex: fi };
+  getAutoCompleteCard(zones) {
+    const foundations = [
+        zones.get('foundation-0'), zones.get('foundation-1'), 
+        zones.get('foundation-2'), zones.get('foundation-3')
+    ];
+    const minFound = Math.min(...foundations.map(f => f.isEmpty() ? 0 : f.getTopCard().order));
+
+    const waste = zones.get('waste');
+    if (!waste.isEmpty()) {
+      const card = waste.getTopCard();
+      const fi = this.findFoundationFor(card, zones);
+      if (fi && card.order <= minFound + 2) {
+        return { sourceZoneId: 'waste', card, targetZoneId: fi };
       }
     }
-    for (let i = 0; i < state.tableau.length; i++) {
-      const col = state.tableau[i];
-      if (col.length === 0) continue;
-      const card = col[col.length - 1];
+    for (let i = 0; i < 7; i++) {
+      const col = zones.get(`tableau-${i}`);
+      if (col.isEmpty()) continue;
+      const card = col.getTopCard();
       if (!card.faceUp) continue;
-      const fi = this.findFoundationFor(card, state.foundations);
-      if (fi >= 0 && card.order <= minFound + 2) {
-        return { source: 'tableau', colIndex: i, card, foundationIndex: fi };
+      const fi = this.findFoundationFor(card, zones);
+      if (fi && card.order <= minFound + 2) {
+        return { sourceZoneId: col.id, cardIndex: col.cards.length - 1, card, targetZoneId: fi };
       }
     }
     return null;

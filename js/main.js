@@ -4,9 +4,9 @@ import { initRenderer, recalcLayout, getLayout, clear, drawCardBack, drawCardFac
   spawnWinParticles, updateAndDrawParticles } from './renderer.js';
 import { initInput, getDragState } from './input.js';
 import { updateTweens, hasTweens } from './tween.js';
-import { createGameState, dealStock, moveCards, findFoundationFor, canPlaceOnTableau,
-  canPlaceOnFoundation, isWon, allCardsFaceUp, getAutoCompleteCard, undo, undoTo, canRecycleStock,
+import { createGameState, dealStock, moveCards, isWon, allCardsFaceUp, getAutoCompleteCard, undo, undoTo, canRecycleStock,
   serializeState, deserializeState } from './game.js';
+import { KlondikeRules } from './rules/klondike.js';
 import { loadStats, saveStats, saveGameState, loadGameState, clearGameState,
   loadModeSettings, saveModeSettings } from './storage.js';
 import { TABLEAU_COLS, FOUNDATION_COUNT, AUTO_COMPLETE_DELAY, COLORS,
@@ -94,6 +94,7 @@ function init() {
 
   updateSeedDisplay();
   window.__gameState = state;
+  recalcLayout();
   scheduleFrame();
 }
 
@@ -109,6 +110,7 @@ function newGame(countPrevious = true, seed = undefined) {
   state = createGameState(drawMode.drawCount, recycleMode.passes, seed);
   updateSeedDisplay();
   window.__gameState = state;
+  recalcLayout();
   autoCompleting = false;
   showStats = false;
   showModeSelect = false;
@@ -117,12 +119,13 @@ function newGame(countPrevious = true, seed = undefined) {
 }
 
 function restartGame() {
-  if (!state || !state.initialTableau || !state.initialStock) return;
+  if (!state || !state.initialZones) return;
   // Restore the exact initial deal without touching stats
-  state.tableau = state.initialTableau.map(col => col.map(card => ({ ...card })));
-  state.foundations = Array.from({ length: FOUNDATION_COUNT }, () => []);
-  state.stock = state.initialStock.map(card => ({ ...card }));
-  state.waste = [];
+  state.zones = new Map();
+  for (const [id, zone] of state.initialZones.entries()) {
+      state.zones.set(id, zone.clone());
+  }
+
   state.moves = 0;
   state.elapsed = 0;
   state.startTime = Date.now();
@@ -131,6 +134,7 @@ function restartGame() {
   state.stockPasses = 0;
   autoCompleting = false;
   window.__gameState = state;
+  recalcLayout();
   updateSeedDisplay();
   saveGameState(serializeState(state));
 }
@@ -157,13 +161,14 @@ function handleAction(action) {
     case 'tap': {
       const card = getCardFromHit(action);
       if (!card) break;
-      const fi = findFoundationFor(card, state.foundations);
-      if (fi >= 0) {
-        moveFromHit(action, 'foundation', fi);
-      } else if (action.source === 'waste') {
-        for (let i = 0; i < TABLEAU_COLS; i++) {
-          if (canPlaceOnTableau(card, state.tableau[i])) {
-            moveFromHit(action, 'tableau', i);
+      const fi = KlondikeRules.findFoundationFor(card, state.zones);
+      if (fi) {
+        moveFromHit(action, fi);
+      } else if (action.sourceZoneId && action.sourceZoneId === 'waste') {
+        for (let i = 0; i < 7; i++) {
+          const tZone = state.zones.get(`tableau-${i}`);
+          if (KlondikeRules.canDrop(card, tZone, tZone.id)) {
+            moveFromHit(action, tZone.id);
             break;
           }
         }
@@ -174,15 +179,15 @@ function handleAction(action) {
     case 'doubleTap': {
       const card = getCardFromHit(action);
       if (!card) break;
-      const fi = findFoundationFor(card, state.foundations);
-      if (fi >= 0) moveFromHit(action, 'foundation', fi);
+      const fi = KlondikeRules.findFoundationFor(card, state.zones);
+      if (fi) moveFromHit(action, fi);
       break;
     }
 
     case 'drop': {
       if (!action.to) break;
       const { from, to } = action;
-      moveFromHit(from, to.source, to.colIndex);
+      moveFromHit(from, to.targetZoneId);
       break;
     }
   }
@@ -213,20 +218,14 @@ function handleAction(action) {
 }
 
 function getCardFromHit(hit) {
-  if (hit.source === 'waste' && state.waste.length > 0) return state.waste[state.waste.length - 1];
-  if (hit.source === 'tableau') return state.tableau[hit.colIndex][hit.cardIndex];
-  if (hit.source === 'foundation') return state.foundations[hit.colIndex][state.foundations[hit.colIndex].length - 1];
-  return null;
+  const zoneId = hit.sourceZoneId;
+  const zone = state.zones.get(zoneId);
+  if (!zone || zone.isEmpty()) return null;
+  return zone.cards[hit.cardIndex !== undefined ? hit.cardIndex : zone.cards.length - 1];
 }
 
-function moveFromHit(from, toType, toIndex) {
-  if (from.source === 'waste') {
-    moveCards(state, 'waste', 0, state.waste.length - 1, toType, toIndex);
-  } else if (from.source === 'tableau') {
-    moveCards(state, 'tableau', from.colIndex, from.cardIndex, toType, toIndex);
-  } else if (from.source === 'foundation') {
-    moveCards(state, 'foundation', from.colIndex, state.foundations[from.colIndex].length - 1, toType, toIndex);
-  }
+function moveFromHit(from, toZoneId) {
+  moveCards(state, from.sourceZoneId, from.cardIndex !== undefined ? from.cardIndex : 0, toZoneId);
 }
 
 function scheduleFrame() {
@@ -262,10 +261,8 @@ function loop(timestamp) {
       autoCompleteTimer = 0;
       const ac = getAutoCompleteCard(state);
       if (ac) {
-        if (ac.source === 'waste') {
-          moveCards(state, 'waste', 0, state.waste.length - 1, 'foundation', ac.foundationIndex);
-        } else {
-          moveCards(state, 'tableau', ac.colIndex, state.tableau[ac.colIndex].length - 1, 'foundation', ac.foundationIndex);
+        if (ac.sourceZoneId) {
+          moveCards(state, ac.sourceZoneId, ac.cardIndex !== undefined ? ac.cardIndex : 0, ac.targetZoneId);
         }
         if (isWon(state)) {
           state.won = true;
@@ -318,63 +315,60 @@ function render(dt) {
   // Update HTML header timer and moves
   UI.updateHeader(state.elapsed, state.moves);
 
-  // Stock
-  if (state.stock.length > 0) {
-    drawCardBack(l.stockX, l.stockY);
-    drawText(l.stockX + l.cardW / 2, l.stockY + l.cardH + 12, `${state.stock.length}`, 11, 'center');
-  } else {
-    const canRecycle = canRecycleStock(state);
-    drawEmptyPile(l.stockX, l.stockY, canRecycle ? '↻' : '✕');
-    // Show pass count if limited
-    if (state.maxPasses !== Infinity) {
-      drawText(l.stockX + l.cardW / 2, l.stockY + l.cardH + 12,
-        `${state.stockPasses}/${state.maxPasses}`, 10, 'center');
-    }
-  }
-
   // Get current drag state for the rest of render
   const drag = getDragState();
 
-  // Waste — fan cards in draw-3 mode
-  // FIX: skip the top waste card if it's currently being dragged (prevents ghost)
-  const wasteDrag = drag && drag.dragging && drag.source === 'waste';
-  if (state.waste.length > 0) {
-    if (state.drawCount > 1) {
-      // Show up to 3 fanned waste cards
-      const fanCount = Math.min(state.drawCount, state.waste.length);
-      const fanOffset = 15;
-      for (let i = fanCount - 1; i >= 0; i--) {
-        const cardIdx = state.waste.length - 1 - i;
-        if (cardIdx >= 0) {
-          // i === 0 is the top (draggable) card — skip it while dragging
-          if (i === 0 && wasteDrag) continue;
-          const ox = (fanCount - 1 - i) * fanOffset;
-          if (i === 0) {
-            drawCardFace(l.wasteX + ox, l.wasteY, state.waste[cardIdx]);
-          } else {
-            drawCardFace(l.wasteX + ox, l.wasteY, state.waste[cardIdx], 0.9);
-          }
-        }
-      }
-    } else {
-      if (!wasteDrag) {
-        drawCardFace(l.wasteX, l.wasteY, state.waste[state.waste.length - 1]);
-      }
-    }
-  } else {
-    drawEmptyPile(l.wasteX, l.wasteY);
-  }
+  // Render Zones dynamically
+  for (const [zoneId, zone] of state.zones.entries()) {
+    const pos = l.zones.get(zoneId);
+    if (!pos) continue;
 
-  // Foundations
-  // FIX: skip the top foundation card if it's being dragged (prevents ghost)
-  const suitLabels = ['♠', '♥', '♦', '♣'];
-  for (let i = 0; i < FOUNDATION_COUNT; i++) {
-    const f = state.foundations[i];
-    const foundationDrag = drag && drag.dragging && drag.source === 'foundation' && drag.colIndex === i;
-    if (f.length > 0) {
-      if (!foundationDrag) drawCardFace(l.foundationX[i], l.foundationY, f[f.length - 1]);
+    if (zone.isEmpty() && zoneId.startsWith('foundation')) {
+        const suits = ['♠', '♥', '♦', '♣'];
+        const p = parseInt(zoneId.split('-')[1]);
+        drawEmptyPile(pos.x, pos.y, suits[p]);
+    } else if (zone.isEmpty() && zoneId.startsWith('tableau')) {
+        drawEmptyPile(pos.x, pos.y, 'K');
+    } else if (zone.isEmpty() && zoneId === 'stock') {
+        const canRecycle = canRecycleStock(state);
+        drawEmptyPile(pos.x, pos.y, canRecycle ? '↻' : '✕');
+        if (state.maxPasses !== Infinity) {
+          drawText(pos.x + l.cardW / 2, pos.y + l.cardH + 12, `${state.stockPasses}/${state.maxPasses}`, 10, 'center');
+        }
+    } else if (zone.isEmpty() && zoneId === 'waste') {
+        drawEmptyPile(pos.x, pos.y);
+    } else if (zoneId === 'stock' && !zone.isEmpty()) {
+       drawCardBack(pos.x, pos.y);
+       drawText(pos.x + l.cardW / 2, pos.y + l.cardH + 12, `${zone.cards.length}`, 11, 'center');
     } else {
-      drawEmptyPile(l.foundationX[i], l.foundationY, suitLabels[i]);
+        // Draw Cards in the zone
+        for (let i = 0; i < zone.cards.length; i++) {
+            // Skip the card (and subsequent cards) if it's currently being dragged
+            if (drag && drag.dragging && drag.sourceZoneId === zoneId && i >= drag.cardIndex) {
+               // Only skip dragging subsequent cards if it's a fanDown (tableau)
+               if (zone.type === 'fanDown' || i === drag.cardIndex) continue;
+            }
+
+            const cPos = getCardPosition(state, zoneId, i);
+            const card = zone.cards[i];
+
+             // Special Waste Fanning rule (Draw 3)
+            if (zone.type === 'fanRightLimited') {
+                 const cardsToShow = state.drawCount || 1;
+                 const startIdx = Math.max(0, zone.cards.length - cardsToShow);
+                 if (i < startIdx) continue;
+            }
+
+            if (card.faceUp) {
+                drawCardFace(cPos.x, cPos.y, card);
+                // Optional dimming for un-draggable fanned waste cards
+                if (zone.type === 'fanRightLimited' && i < zone.cards.length - 1) {
+                    drawCardFace(cPos.x, cPos.y, card, 0.9);
+                }
+            } else {
+                drawCardBack(cPos.x, cPos.y);
+            }
+        }
     }
   }
 
@@ -382,41 +376,17 @@ function render(dt) {
   if (drag && drag.dragging) {
     const card = getCardFromHit(drag);
     if (card) {
-      for (let i = 0; i < FOUNDATION_COUNT; i++) {
-        if (canPlaceOnFoundation(card, state.foundations[i])) {
-          drawHighlight(l.foundationX[i], l.foundationY);
-        }
-      }
-      for (let i = 0; i < TABLEAU_COLS; i++) {
-        if (canPlaceOnTableau(card, state.tableau[i])) {
-          const col = state.tableau[i];
-          if (col.length === 0) {
-            drawHighlight(l.tableauX[i], l.tableauY);
-          } else {
-            const pos = getCardPosition(state, 'tableau', i, col.length - 1);
-            drawHighlight(l.tableauX[i], pos.y);
-          }
-        }
-      }
-    }
-  }
-
-  // Tableau
-  for (let col = 0; col < TABLEAU_COLS; col++) {
-    const tcol = state.tableau[col];
-    if (tcol.length === 0) {
-      drawEmptyPile(l.tableauX[col], l.tableauY, 'K');
-      continue;
-    }
-    for (let i = 0; i < tcol.length; i++) {
-      if (drag && drag.dragging && drag.source === 'tableau' && drag.colIndex === col && i >= drag.cardIndex) continue;
-      const pos = getCardPosition(state, 'tableau', col, i);
-      const card = tcol[i];
-      if (card.faceUp) {
-        drawCardFace(pos.x, pos.y, card);
-      } else {
-        drawCardBack(pos.x, pos.y);
-      }
+       for (const [zoneId, zone] of state.zones.entries()) {
+           if (KlondikeRules.canDrop(card, zone, zoneId)) {
+               const pos = l.zones.get(zoneId);
+               if (zone.isEmpty() || zone.type !== 'fanDown') {
+                  drawHighlight(pos.x, pos.y);
+               } else {
+                  const lastC = getCardPosition(state, zoneId, zone.cards.length - 1);
+                  drawHighlight(lastC.x, lastC.y);
+               }
+           }
+       }
     }
   }
 
@@ -424,19 +394,13 @@ function render(dt) {
   if (drag && drag.dragging) {
     const offsetX = drag.currentX - drag.startX;
     const offsetY = drag.currentY - drag.startY;
-    if (drag.source === 'tableau') {
-      const tcol = state.tableau[drag.colIndex];
-      for (let i = drag.cardIndex; i < tcol.length; i++) {
-        const pos = getCardPosition(state, 'tableau', drag.colIndex, i);
-        drawCardFace(pos.x + offsetX, pos.y + offsetY, tcol[i]);
-      }
-    } else if (drag.source === 'waste' && state.waste.length > 0) {
-      drawCardFace(l.wasteX + offsetX, l.wasteY + offsetY, state.waste[state.waste.length - 1]);
-    } else if (drag.source === 'foundation') {
-      const f = state.foundations[drag.colIndex];
-      if (f.length > 0) {
-        drawCardFace(l.foundationX[drag.colIndex] + offsetX, l.foundationY + offsetY, f[f.length - 1]);
-      }
+    
+    const zone = state.zones.get(drag.sourceZoneId);
+    if (zone) {
+       for (let i = drag.cardIndex; i < zone.cards.length; i++) {
+           const pos = getCardPosition(state, drag.sourceZoneId, i);
+           drawCardFace(pos.x + offsetX, pos.y + offsetY, zone.cards[i]);
+       }
     }
   }
 

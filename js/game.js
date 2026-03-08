@@ -8,34 +8,19 @@ export function createGameState(drawCount = 1, maxPasses = Infinity, seed = unde
     seed = Math.floor(Math.random() * 2147483647); // 31-bit integer seed
   }
   const deck = shuffleDeck(createDeck(), seed);
-  const tableau = Array.from({ length: TABLEAU_COLS }, () => []);
-  const foundations = Array.from({ length: FOUNDATION_COUNT }, () => []);
-  const stock = [];
-  const waste = [];
-
-  // Deal to tableau
-  let idx = 0;
-  for (let col = 0; col < TABLEAU_COLS; col++) {
-    for (let row = 0; row <= col; row++) {
-      const card = { ...deck[idx++] };
-      card.faceUp = (row === col);
-      tableau[col].push(card);
-    }
-  }
-  // Rest goes to stock
-  for (; idx < deck.length; idx++) {
-    stock.push({ ...deck[idx], faceUp: false });
-  }
+  
+  // Game Setup via Rules
+  const zones = KlondikeRules.createZones();
+  KlondikeRules.deal(zones, deck);
 
   // Snapshot the initial deal for the Restart feature
-  const initialTableau = tableau.map(col => col.map(card => ({ ...card })));
-  const initialStock   = stock.map(card => ({ ...card }));
+  const initialZones = new Map();
+  for (const [id, zone] of zones.entries()) {
+    initialZones.set(id, zone.clone());
+  }
 
   return {
-    tableau,
-    foundations,
-    stock,
-    waste,
+    zones,
     moves: 0,
     startTime: Date.now(),
     elapsed: 0,
@@ -44,48 +29,31 @@ export function createGameState(drawCount = 1, maxPasses = Infinity, seed = unde
     drawCount,
     maxPasses,
     stockPasses: 0, // how many times we've recycled
-    initialTableau,
-    initialStock,
+    initialZones,
     seed,
   };
 }
 
-export function canPlaceOnTableau(card, column) {
-  return KlondikeRules.canPlaceOnTableau(card, column);
-}
-
-export function canPlaceOnFoundation(card, foundation) {
-  return KlondikeRules.canPlaceOnFoundation(card, foundation);
-}
-
-// Find which foundation a card can go to, or -1
-export function findFoundationFor(card, foundations) {
-  return KlondikeRules.findFoundationFor(card, foundations);
-}
-
 export function isWon(state) {
-  return KlondikeRules.isWon(state);
+  return KlondikeRules.isWon(state.zones);
 }
 
 export function allCardsFaceUp(state) {
-  for (const col of state.tableau) {
-    for (const card of col) {
-      if (!card.faceUp) return false;
-    }
-  }
-  return state.stock.length === 0 && state.waste.length === 0;
+  return KlondikeRules.allCardsFaceUp(state.zones);
 }
 
 export function getAutoCompleteCard(state) {
-  return KlondikeRules.getAutoCompleteCard(state);
+  return KlondikeRules.getAutoCompleteCard(state.zones);
 }
 
 export function saveUndo(state, actionDesc = 'Previous State') {
+  const clonedZones = new Map();
+  for (const [id, zone] of state.zones.entries()) {
+    clonedZones.set(id, zone.clone());
+  }
+
   state.history.push({
-    tableau: state.tableau.map(c => c.map(card => ({ ...card }))),
-    foundations: state.foundations.map(f => f.map(card => ({ ...card }))),
-    stock: state.stock.map(card => ({ ...card })),
-    waste: state.waste.map(card => ({ ...card })),
+    zones: clonedZones,
     moves: state.moves,
     stockPasses: state.stockPasses,
     actionDesc: actionDesc,
@@ -96,10 +64,7 @@ export function saveUndo(state, actionDesc = 'Previous State') {
 export function undo(state) {
   if (state.history.length === 0) return false;
   const prev = state.history.pop();
-  state.tableau = prev.tableau;
-  state.foundations = prev.foundations;
-  state.stock = prev.stock;
-  state.waste = prev.waste;
+  state.zones = prev.zones;
   state.moves = prev.moves;
   state.stockPasses = prev.stockPasses;
   return true;
@@ -108,10 +73,7 @@ export function undo(state) {
 export function undoTo(state, targetHistoryIndex) {
   if (targetHistoryIndex < 0 || targetHistoryIndex >= state.history.length) return false;
   const target = state.history[targetHistoryIndex];
-  state.tableau = target.tableau;
-  state.foundations = target.foundations;
-  state.stock = target.stock;
-  state.waste = target.waste;
+  state.zones = target.zones;
   state.moves = target.moves;
   state.stockPasses = target.stockPasses;
   
@@ -122,28 +84,38 @@ export function undoTo(state, targetHistoryIndex) {
 
 // Deal from stock to waste (supports draw 1 or draw 3)
 export function dealStock(state) {
-  const isRecycle = state.stock.length === 0;
+  const stockZone = state.zones.get('stock');
+  const wasteZone = state.zones.get('waste');
+
+  const isRecycle = stockZone.isEmpty();
   saveUndo(state, isRecycle ? 'Recycled Waste' : 'Dealt Stock');
-  if (state.stock.length === 0) {
+  
+  if (isRecycle) {
     // Recycle waste to stock
-    if (state.waste.length === 0) { state.history.pop(); return null; }
+    if (wasteZone.isEmpty()) { state.history.pop(); return null; }
     // Check pass limit
     if (state.maxPasses !== Infinity && state.stockPasses >= state.maxPasses) {
       state.history.pop();
       return null; // No more passes allowed
     }
-    state.stock = state.waste.reverse().map(c => ({ ...c, faceUp: false }));
-    state.waste = [];
+    
+    // Move all from waste back to stock
+    const cards = wasteZone.removeCards(0);
+    cards.reverse().forEach(c => {
+        c.faceUp = false;
+        stockZone.addCard(c);
+    });
+    
     state.stockPasses++;
     state.moves++;
     return 'recycle';
   }
   // Draw N cards
-  const count = Math.min(state.drawCount, state.stock.length);
+  const count = Math.min(state.drawCount, stockZone.cards.length);
   for (let i = 0; i < count; i++) {
-    const card = state.stock.pop();
+    const card = stockZone.removeTopCard();
     card.faceUp = true;
-    state.waste.push(card);
+    wasteZone.addCard(card);
   }
   state.moves++;
   return 'dealt';
@@ -151,89 +123,112 @@ export function dealStock(state) {
 
 // Check if stock can be recycled
 export function canRecycleStock(state) {
-  if (state.stock.length > 0) return true; // Can still draw
-  if (state.waste.length === 0) return false;
+  if (!state.zones.get('stock').isEmpty()) return true; // Can still draw
+  if (state.zones.get('waste').isEmpty()) return false;
   if (state.maxPasses === Infinity) return true;
   return state.stockPasses < state.maxPasses;
 }
 
-export function moveCards(state, fromType, fromIndex, cardIndex, toType, toIndex) {
-  let cards;
-  if (fromType === 'tableau') {
-    const col = state.tableau[fromIndex];
-    cards = col.slice(cardIndex);
-    if (cards.length === 0 || !cards[0].faceUp) return false;
-  } else if (fromType === 'waste') {
-    if (state.waste.length === 0) return false;
-    cards = [state.waste[state.waste.length - 1]];
-  } else if (fromType === 'foundation') {
-    const f = state.foundations[fromIndex];
-    if (f.length === 0) return false;
-    cards = [f[f.length - 1]];
-  } else return false;
+export function moveCards(state, fromZoneId, cardIndex, toZoneId) {
+  const fromZone = state.zones.get(fromZoneId);
+  const toZone = state.zones.get(toZoneId);
 
-  const card = cards[0];
+  if (!fromZone || !toZone) return false;
+  
+  // Rule verification: Can we pick this up?
+  if (!KlondikeRules.canPickUp(fromZone, cardIndex)) return false;
 
-  if (toType === 'tableau') {
-    if (!canPlaceOnTableau(card, state.tableau[toIndex])) return false;
-  } else if (toType === 'foundation') {
-    if (cards.length > 1) return false;
-    if (!canPlaceOnFoundation(card, state.foundations[toIndex])) return false;
-  } else return false;
+  const cardToDrop = fromZone.cards[cardIndex];
 
-  const countStr = cards.length > 1 ? ` (${cards.length} cards)` : '';
-  saveUndo(state, `Moved ${card.value}${card.suit}${countStr}`);
+  // Rule verification: Can we drop this?
+  if (!KlondikeRules.canDrop(cardToDrop, toZone, toZoneId)) return false;
 
-  if (fromType === 'tableau') {
-    state.tableau[fromIndex].splice(cardIndex);
-    const col = state.tableau[fromIndex];
-    if (col.length > 0 && !col[col.length - 1].faceUp) {
-      col[col.length - 1].faceUp = true;
-    }
-  } else if (fromType === 'waste') {
-    state.waste.pop();
-  } else if (fromType === 'foundation') {
-    state.foundations[fromIndex].pop();
+  const numCards = fromZone.cards.length - cardIndex;
+  const countStr = numCards > 1 ? ` (${numCards} cards)` : '';
+  saveUndo(state, `Moved ${cardToDrop.value}${cardToDrop.suit}${countStr}`);
+
+  // Extract
+  const movingCards = fromZone.removeCards(cardIndex);
+  
+  // Flip newly exposed top card of origin pile if it exists and is face down (Tableau behavior)
+  const newTopCard = fromZone.getTopCard();
+  if (newTopCard && !newTopCard.faceUp) {
+      newTopCard.faceUp = true;
   }
 
-  if (toType === 'tableau') {
-    state.tableau[toIndex].push(...cards);
-  } else if (toType === 'foundation') {
-    state.foundations[toIndex].push(card);
-  }
+  // Insert
+  toZone.addCards(movingCards);
 
   state.moves++;
   return true;
 }
 
 export function serializeState(state) {
+  const serializedZones = [];
+  for (const [id, zone] of state.zones.entries()) {
+    serializedZones.push({
+        id: zone.id,
+        type: zone.type,
+        config: zone.config,
+        cards: zone.cards
+    });
+  }
+
+  const initialSerialized = [];
+  for (const [id, zone] of state.initialZones.entries()) {
+      initialSerialized.push({
+          id: zone.id,
+          type: zone.type,
+          config: zone.config,
+          cards: zone.cards
+      });
+  }
+
   return {
-    tableau: state.tableau,
-    foundations: state.foundations,
-    stock: state.stock,
-    waste: state.waste,
+    encodedZones: serializedZones,
     moves: state.moves,
     elapsed: state.elapsed,
     startTime: state.startTime,
     drawCount: state.drawCount,
     maxPasses: state.maxPasses,
     stockPasses: state.stockPasses,
-    initialTableau: state.initialTableau,
-    initialStock: state.initialStock,
+    encodedInitialZones: initialSerialized,
     seed: state.seed,
   };
 }
 
+import { Zone } from './zone.js';
+
 export function deserializeState(data) {
+  const zones = new Map();
+  if (data.encodedZones) {
+    for (const z of data.encodedZones) {
+        const zone = new Zone(z.id, z.type, z.config);
+        zone.cards = z.cards;
+        zones.set(zone.id, zone);
+    }
+  }
+
+  const initialZones = new Map();
+  if (data.encodedInitialZones) {
+      for (const z of data.encodedInitialZones) {
+          const zone = new Zone(z.id, z.type, z.config);
+          zone.cards = z.cards;
+          initialZones.set(zone.id, zone);
+      }
+  }
+
   return {
-    ...data,
+    zones,
     drawCount: data.drawCount || 1,
     maxPasses: data.maxPasses ?? Infinity,
     stockPasses: data.stockPasses || 0,
     won: false,
     history: [],
-    initialTableau: data.initialTableau || null,
-    initialStock: data.initialStock || null,
+    initialZones,
     seed: data.seed,
+    moves: data.moves || 0,
+    elapsed: data.elapsed || 0,
+    startTime: data.startTime || Date.now()
   };
 }
