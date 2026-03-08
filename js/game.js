@@ -15,9 +15,15 @@ export function createGameState(variant = 'klondike', options = {}, seed = undef
   if (seed === undefined) {
     seed = Math.floor(Math.random() * 2147483647); // 31-bit integer seed
   }
-  const deck = shuffleDeck(createDeck(), seed);
   
   const rules = GameRules[variant] || KlondikeRules;
+  let deck;
+  if (rules.createDeck) {
+    deck = rules.createDeck(seed, options);
+  } else {
+    deck = shuffleDeck(createDeck(), seed);
+  }
+  
   const zones = rules.createZones(options);
   rules.deal(zones, deck, options);
 
@@ -52,12 +58,12 @@ export function isWon(state) {
 
 export function allCardsFaceUp(state) {
   const rules = GameRules[state.variant] || KlondikeRules;
-  return rules.allCardsFaceUp(state.zones);
+  return rules.allCardsFaceUp(state);
 }
 
 export function getAutoCompleteCard(state) {
   const rules = GameRules[state.variant] || KlondikeRules;
-  return rules.getAutoCompleteCard(state.zones);
+  return rules.getAutoCompleteCard(state);
 }
 
 export function saveUndo(state, actionDesc = 'Previous State') {
@@ -98,6 +104,11 @@ export function undoTo(state, targetHistoryIndex) {
 
 // Deal from stock to waste (supports draw 1 or draw 3)
 export function dealStock(state) {
+  const rules = GameRules[state.variant] || KlondikeRules;
+  if (rules.dealStock) {
+    return rules.dealStock(state);
+  }
+
   const stockZone = state.zones.get('stock');
   const wasteZone = state.zones.get('waste');
 
@@ -149,13 +160,15 @@ export function moveCards(state, fromZoneId, cardIndex, toZoneId) {
 
   if (!fromZone || !toZone) return false;
   
+  const rules = GameRules[state.variant] || KlondikeRules;
+
   // Rule verification: Can we pick this up?
-  if (!KlondikeRules.canPickUp(fromZone, cardIndex)) return false;
+  if (!rules.canPickUp(fromZone, cardIndex, state)) return false;
 
   const cardToDrop = fromZone.cards[cardIndex];
 
   // Rule verification: Can we drop this?
-  if (!KlondikeRules.canDrop(cardToDrop, toZone, toZoneId)) return false;
+  if (!rules.canDrop(cardToDrop, toZone, toZoneId, state)) return false;
 
   const numCards = fromZone.cards.length - cardIndex;
   const countStr = numCards > 1 ? ` (${numCards} cards)` : '';
@@ -174,6 +187,11 @@ export function moveCards(state, fromZoneId, cardIndex, toZoneId) {
   toZone.addCards(movingCards);
 
   state.moves++;
+
+  if (rules.afterMove) {
+    rules.afterMove(state);
+  }
+
   return true;
 }
 

@@ -5,8 +5,7 @@ import { initRenderer, recalcLayout, getLayout, clear, drawCardBack, drawCardFac
 import { initInput, getDragState } from './input.js';
 import { updateTweens, hasTweens } from './tween.js';
 import { createGameState, dealStock, moveCards, isWon, allCardsFaceUp, getAutoCompleteCard, undo, undoTo, canRecycleStock,
-  serializeState, deserializeState } from './game.js';
-import { KlondikeRules } from './rules/klondike.js';
+  serializeState, deserializeState, GameRules } from './game.js';
 import { loadStats, saveStats, saveGameState, loadGameState, clearGameState,
   loadModeSettings, saveModeSettings } from './storage.js';
 import { TABLEAU_COLS, FOUNDATION_COUNT, AUTO_COMPLETE_DELAY, COLORS,
@@ -186,13 +185,14 @@ function handleAction(action) {
     case 'tap': {
       const card = getCardFromHit(action);
       if (!card) break;
-      const fi = KlondikeRules.findFoundationFor(card, state.zones);
+      const rules = GameRules[state.variant] || GameRules['klondike'];
+      const fi = rules.findFoundationFor(card, state);
       if (fi) {
         moveFromHit(action, fi);
       } else if (action.sourceZoneId && action.sourceZoneId === 'waste') {
-        for (let i = 0; i < 7; i++) {
+        for (let i = 0; i < (state.config.layoutCols || 7); i++) {
           const tZone = state.zones.get(`tableau-${i}`);
-          if (KlondikeRules.canDrop(card, tZone, tZone.id)) {
+          if (tZone && rules.canDrop(card, tZone, tZone.id, state)) {
             moveFromHit(action, tZone.id);
             break;
           }
@@ -204,7 +204,8 @@ function handleAction(action) {
     case 'doubleTap': {
       const card = getCardFromHit(action);
       if (!card) break;
-      const fi = KlondikeRules.findFoundationFor(card, state.zones);
+      const rules = GameRules[state.variant] || GameRules['klondike'];
+      const fi = rules.findFoundationFor(card, state);
       if (fi) moveFromHit(action, fi);
       break;
     }
@@ -689,17 +690,16 @@ function modeModalRect(l) {
   const isKlondike = (modeSettings.variant || 'klondike') === 'klondike';
   const modalW = Math.min(350, l.w - 20);
   
-  // Title(36) + Divider(20) = 56
-  // Variant Title(16) + Gap(12) + Btn(34) = 62
-  // Seed Title(16) + Gap(12) + Input(30) = 58
-  // New Game Btn(36) + Padding(20) = 56
-  
-  let modalH = 56 + 62 + 58 + 56;
+  // Title section uses 76 pixels (36 + 20 + 20)
+  // Variant section uses 90 pixels (gap(28) + btn(34) + gap(28))
+  // Seed section uses 58 pixels (gap(28) + 30)
+  // New Game Btn needs 56 (36 + 20 padding)
+  let modalH = 76 + 90 + 58 + 56; // 280
   
   if (isKlondike) {
-     // Draw Count(16) + Gap(12) + Btn(34) = 62
-     // Passes(16) + Gap(12) + Btn(34) = 62
-     modalH += 124 + gap*2; // add extra gaps between sections
+     // Draw count section: 90
+     // Passes section: 90
+     modalH += 180;
   }
   
   return { x: l.w/2 - modalW/2, y: l.h/2 - modalH/2, w: modalW, h: modalH };
@@ -807,6 +807,7 @@ function overlayClickHandler(e) {
     // New Game button
     const btnW = modalW - 48;
     if (inRect(x, y, cx - btnW / 2, my, btnW, 36)) {
+      console.log('New Game button clicked', { variant: modeSettings.variant, my });
       showModeSelect = false;
       UI.hideSeedInput();
       

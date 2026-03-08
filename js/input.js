@@ -116,13 +116,8 @@ function hitTest(x, y) {
   const state = window.__gameState;
   if (!state || !state.zones) return null;
 
-  // We hit-test zones in reverse (topmost visually to bottommost)
-  // For Klondike: Tableau > Waste > Foundations > Stock
-  const checkOrder = [];
-  for (let i = 0; i < 7; i++) checkOrder.push(`tableau-${i}`);
-  for (let i = 0; i < 4; i++) checkOrder.push(`foundation-${i}`);
-  checkOrder.push('waste');
-  checkOrder.push('stock');
+  // We hit-test zones in reverse order of definition to respect render order
+  const checkOrder = Array.from(state.zones.keys()).reverse();
 
   for (const zoneId of checkOrder) {
       const zone = state.zones.get(zoneId);
@@ -165,9 +160,8 @@ function findDropTarget(x, y) {
   const ex = DROP_ZONE_EXPAND_X || 20;
   const ey = DROP_ZONE_EXPAND_Y || 20;
 
-  // Drop targets for Klondike are Foundations and Tableaux
   for (const [zoneId, zone] of state.zones.entries()) {
-      if (!zoneId.startsWith('tableau-') && !zoneId.startsWith('foundation-')) continue;
+      if (zoneId === 'stock' || zoneId === 'waste') continue;
 
       const pos = l.zones.get(zoneId);
       if (!pos) continue;

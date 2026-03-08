@@ -55,7 +55,7 @@ export const KlondikeRules = {
   // -------------------------------------------------------------
   // Validation Rules
   // -------------------------------------------------------------
-  canDrop(card, targetZone, targetZoneId) {
+  canDrop(card, targetZone, targetZoneId, state) {
     if (targetZoneId.startsWith('tableau-')) {
         return this.canPlaceOnTableau(card, targetZone.cards);
     }
@@ -65,7 +65,7 @@ export const KlondikeRules = {
     return false;
   },
 
-  canPickUp(zone, cardIndex) {
+  canPickUp(zone, cardIndex, state) {
      if (zone.id.startsWith('tableau-')) {
          return zone.cards[cardIndex].faceUp;
      }
@@ -88,7 +88,8 @@ export const KlondikeRules = {
     return top.suit === card.suit && card.order === top.order + 1;
   },
 
-  findFoundationFor(card, zones) {
+  findFoundationFor(card, state) {
+    const zones = state.zones;
     for (let i = 0; i < 4; i++) {
         const fzone = zones.get(`foundation-${i}`);
         if (this.canPlaceOnFoundation(card, fzone.cards)) return fzone.id;
@@ -109,7 +110,8 @@ export const KlondikeRules = {
     return true;
   },
 
-  allCardsFaceUp(zones) {
+  allCardsFaceUp(state) {
+    const zones = state.zones;
     for (const [id, zone] of zones.entries()) {
         if (id === 'stock' || id === 'waste') {
             if (!zone.isEmpty()) return false;
@@ -124,7 +126,8 @@ export const KlondikeRules = {
     return true;
   },
 
-  getAutoCompleteCard(zones) {
+  getAutoCompleteCard(state) {
+    const zones = state.zones;
     const foundations = [
         zones.get('foundation-0'), zones.get('foundation-1'), 
         zones.get('foundation-2'), zones.get('foundation-3')
