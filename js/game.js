@@ -2,8 +2,11 @@
 import { createDeck, shuffleDeck } from './cards.js';
 import { TABLEAU_COLS, FOUNDATION_COUNT, VALUE_ORDER } from './constants.js';
 
-export function createGameState(drawCount = 1, maxPasses = Infinity) {
-  const deck = shuffleDeck(createDeck());
+export function createGameState(drawCount = 1, maxPasses = Infinity, seed = undefined) {
+  if (seed === undefined) {
+    seed = Math.floor(Math.random() * 2147483647); // 31-bit integer seed
+  }
+  const deck = shuffleDeck(createDeck(), seed);
   const tableau = Array.from({ length: TABLEAU_COLS }, () => []);
   const foundations = Array.from({ length: FOUNDATION_COUNT }, () => []);
   const stock = [];
@@ -42,6 +45,7 @@ export function createGameState(drawCount = 1, maxPasses = Infinity) {
     stockPasses: 0, // how many times we've recycled
     initialTableau,
     initialStock,
+    seed,
   };
 }
 
@@ -247,6 +251,7 @@ export function serializeState(state) {
     stockPasses: state.stockPasses,
     initialTableau: state.initialTableau,
     initialStock: state.initialStock,
+    seed: state.seed,
   };
 }
 
@@ -260,5 +265,6 @@ export function deserializeState(data) {
     history: [],
     initialTableau: data.initialTableau || null,
     initialStock: data.initialStock || null,
+    seed: data.seed,
   };
 }

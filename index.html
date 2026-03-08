@@ -55,7 +55,6 @@
     </div>
     </div>
 
-    <!-- Floating Undo UI -->
     <div id="undo-wrapper">
       <div id="undo-menu" class="undo-dropdown hidden">
         <div class="dropdown-section">
@@ -69,6 +68,13 @@
         <span class="icon">↶</span>
       </button>
     </div>
+    
+    <!-- Seed Display -->
+    <div id="seed-display" class="seed-label hidden">
+      Seed: <span id="seed-value"></span>
+    </div>
+    
+    <input type="number" id="seed-input" class="hidden mode-seed-input" min="1" max="999999" placeholder="Random">
   </div>
 
   <canvas id="game"></canvas>

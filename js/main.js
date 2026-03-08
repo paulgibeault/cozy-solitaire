@@ -144,12 +144,14 @@ function init() {
     document.querySelector('.dropdown-caret').style.transform = 'rotate(0deg)';
     if (showModeSelect) {
       showModeSelect = false;
+      document.getElementById('seed-input')?.classList.add('hidden');
       markDirty();
       return;
     }
     const opening = !showStats;
     showStats = opening;
     showModeSelect = false;
+    document.getElementById('seed-input')?.classList.add('hidden');
     if (opening) overlayJustOpened = true;
     markDirty();
   });
@@ -164,6 +166,9 @@ function init() {
     }
     const opening = !showModeSelect;
     showModeSelect = opening;
+    if (!opening) {
+      document.getElementById('seed-input')?.classList.add('hidden');
+    }
     showStats = false;
     if (opening) overlayJustOpened = true;
     markDirty();
@@ -185,11 +190,12 @@ function init() {
     newGame(false);
   }
 
+  updateSeedDisplay();
   window.__gameState = state;
   scheduleFrame();
 }
 
-function newGame(countPrevious = true) {
+function newGame(countPrevious = true, seed = undefined) {
   if (countPrevious && state && !state.won && state.moves > 0) {
     stats.gamesPlayed++;
     // We do not increment gamesWon
@@ -198,11 +204,13 @@ function newGame(countPrevious = true) {
   }
   const drawMode = DRAW_MODES.find(m => m.id === modeSettings.drawMode) || DRAW_MODES[0];
   const recycleMode = RECYCLE_MODES.find(m => m.id === modeSettings.recycleMode) || RECYCLE_MODES[0];
-  state = createGameState(drawMode.drawCount, recycleMode.passes);
+  state = createGameState(drawMode.drawCount, recycleMode.passes, seed);
+  updateSeedDisplay();
   window.__gameState = state;
   autoCompleting = false;
   showStats = false;
   showModeSelect = false;
+  document.getElementById('seed-input')?.classList.add('hidden');
   clearGameState();
 }
 
@@ -221,7 +229,19 @@ function restartGame() {
   state.stockPasses = 0;
   autoCompleting = false;
   window.__gameState = state;
+  updateSeedDisplay();
   saveGameState(serializeState(state));
+}
+
+function updateSeedDisplay() {
+  const display = document.getElementById('seed-display');
+  const span = document.getElementById('seed-value');
+  if (state && state.seed !== undefined) {
+    span.innerText = state.seed;
+    display.classList.remove('hidden');
+  } else {
+    display.classList.add('hidden');
+  }
 }
 
 function handleAction(action) {
@@ -644,7 +664,7 @@ function drawModeOverlay(l) {
   const drawBtnW = 80, drawBtnH = 34;
   const recBtnW = 90, recBtnH = 34;
   const modalW = Math.min(340, l.w - 40);
-  const modalH = 36 + 22 + 16 + gap + drawBtnH + gap + 16 + gap + recBtnH + gap + 18 + gap + 36 + 28;
+  const modalH = 36 + 22 + 16 + gap + drawBtnH + gap + 16 + gap + recBtnH + gap + 18 + gap + 36 + gap + 36;
   const cy = l.h / 2;
 
   drawModalBox(ctx, cx, cy, modalW, modalH);
@@ -684,11 +704,21 @@ function drawModeOverlay(l) {
   }
   y += recBtnH + gap;
 
-  // Current mode description
-  const drawMode = DRAW_MODES.find(m => m.id === modeSettings.drawMode) || DRAW_MODES[0];
-  const recycleMode = RECYCLE_MODES.find(m => m.id === modeSettings.recycleMode) || RECYCLE_MODES[0];
-  drawText(cx, y, `${drawMode.label}  ·  ${recycleMode.label} passes`, 12, 'center');
-  y += gap;
+  // Optional Seed Input
+  drawText(cx, y - 10, 'Seed', 12, 'center');
+  const seedBoxW = 160;
+  const seedBoxH = 30;
+  
+  const seedInput = document.getElementById('seed-input');
+  if (seedInput) {
+    seedInput.style.left = `${cx - seedBoxW / 2}px`;
+    seedInput.style.top = `${y}px`;
+    if (seedInput.classList.contains('hidden')) {
+      seedInput.classList.remove('hidden');
+      seedInput.value = window._pendingSeed || '';
+    }
+  }
+  y += gap + seedBoxH;
 
   // New Game button (centered, full width of modal minus padding)
   const btnW = modalW - 48;
@@ -755,11 +785,14 @@ function modeModalRect(l) {
   const gap = 28;
   const drawBtnH = 34, recBtnH = 34;
   const modalW = Math.min(340, l.w - 40);
-  const modalH = 36 + 22 + 16 + gap + drawBtnH + gap + 16 + gap + recBtnH + gap + 18 + gap + 36 + 28;
+  const modalH = 36 + 22 + 16 + gap + drawBtnH + gap + 16 + gap + recBtnH + gap + 18 + gap + 36 + gap + 36;
   return { x: l.w/2 - modalW/2, y: l.h/2 - modalH/2, w: modalW, h: modalH };
 }
 
 function overlayClickHandler(e) {
+  // Ignore clicks that land directly on our HTML input
+  if (e.target && e.target.id === 'seed-input') return;
+
   // Skip processing if the overlay was just opened by this same click event
   if (overlayJustOpened) { overlayJustOpened = false; return; }
 
@@ -788,6 +821,7 @@ function overlayClickHandler(e) {
     // Click outside modal closes it
     if (!inRect(x, y, mr.x, mr.y, mr.w, mr.h)) {
       showModeSelect = false;
+      document.getElementById('seed-input')?.classList.add('hidden');
       markDirty();
       e.stopPropagation();
       return;
@@ -830,14 +864,29 @@ function overlayClickHandler(e) {
     }
     my += recBtnH + gap;
 
-    // Description line
-    my += gap;
+    // Seed Box
+    const seedBoxH = 30;
+    my += gap + seedBoxH;
 
     // New Game button
     const btnW = modalW - 48;
     if (inRect(x, y, cx - btnW / 2, my, btnW, 36)) {
       showModeSelect = false;
-      newGame(true);
+      document.getElementById('seed-input')?.classList.add('hidden');
+      
+      const seedInputVal = document.getElementById('seed-input')?.value;
+      let explicitSeed = seedInputVal ? parseInt(seedInputVal, 10) : undefined;
+      if (explicitSeed !== undefined) {
+        if (isNaN(explicitSeed)) explicitSeed = undefined;
+        else explicitSeed = Math.max(1, Math.min(999999, explicitSeed));
+      }
+      
+      newGame(true, explicitSeed);
+      if (document.getElementById('seed-input')) {
+        document.getElementById('seed-input').value = ""; // clear after starting
+      }
+      window._pendingSeed = ""; // keep consistent
+      
       // Reload stats for the potentially new game type
       stats = loadStats(getGameTypeKey());
       markDirty();
