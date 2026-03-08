@@ -12,9 +12,55 @@
   <link rel="shortcut icon" href="icon.svg">
   <link rel="apple-touch-icon" href="icon.svg">
   <link rel="stylesheet" href="css/style.css">
-  <title>🃏 Cozy Solitaire</title>
+  <title>Cozy Solitaire</title>
 </head>
 <body>
+  <!-- UI Layer on top of canvas -->
+  <div id="ui-layer">
+    <!-- Header -->
+    <header id="header-bar">
+      <div id="app-title-container">
+        <h1 id="app-title">
+          <img src="logo.svg" alt="Logo" class="title-icon">
+          <span class="title-text">Cozy Solitaire</span>
+          <span class="dropdown-caret">▼</span>
+        </h1>
+      </div>
+      <div id="header-stats">
+        ♣ <span id="time-display">0:00</span>  ·  <span id="moves-display">0</span> moves
+      </div>
+    </header>
+
+    <!-- Dropdown Menu -->
+    <div id="logo-dropdown" class="edgy-dropdown hidden">
+      <div class="dropdown-section">
+        <div class="dropdown-options">
+          <button id="btn-new" class="dropdown-btn">
+            <span class="icon">▶</span> New Game
+          </button>
+          <button id="btn-restart" class="dropdown-btn">
+            <span class="icon">↩</span> Restart Game
+          </button>
+          <button id="btn-undo" class="dropdown-btn">
+            <span class="icon">↶</span> Undo Move
+          </button>
+        </div>
+      </div>
+      <div class="dropdown-divider"></div>
+      <div class="dropdown-section">
+        <h4 class="dropdown-header">OPTIONS</h4>
+        <div class="dropdown-options">
+          <button id="btn-mode" class="dropdown-btn">
+            <span class="icon">♦</span> Game Mode
+          </button>
+          <button id="btn-stats" class="dropdown-btn">
+            <span class="icon">♠</span> Statistics
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <canvas id="game"></canvas>
   <script type="module" src="js/main.js?v=3"></script>
 </body>

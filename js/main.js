@@ -1,6 +1,6 @@
 // main.js — Entry point, game loop, state machine
 import { initRenderer, recalcLayout, getLayout, clear, drawCardBack, drawCardFace,
-  drawEmptyPile, drawHighlight, drawButton, drawIconButton, drawHeaderBar, drawText, getCardPosition,
+  drawEmptyPile, drawHighlight, drawText, getCardPosition,
   spawnWinParticles, updateAndDrawParticles } from './renderer.js';
 import { initInput, getDragState } from './input.js';
 import { updateTweens, hasTweens } from './tween.js';
@@ -38,6 +38,56 @@ function init() {
   initRenderer(canvas);
   initInput(canvas, handleAction, markDirty);
   window.addEventListener('resize', () => { recalcLayout(); markDirty(); });
+
+  // Bind UI Events
+  const dropdown = document.getElementById('logo-dropdown');
+  document.getElementById('app-title-container').addEventListener('click', (e) => {
+    e.stopPropagation();
+    dropdown.classList.toggle('hidden');
+    const caret = document.querySelector('.dropdown-caret');
+    caret.style.transform = dropdown.classList.contains('hidden') ? 'rotate(0deg)' : 'rotate(180deg)';
+  });
+
+  window.addEventListener('click', (e) => {
+    if (!dropdown.contains(e.target) && !document.getElementById('app-title-container').contains(e.target)) {
+      dropdown.classList.add('hidden');
+      document.querySelector('.dropdown-caret').style.transform = 'rotate(0deg)';
+    }
+  });
+
+  document.getElementById('btn-new').addEventListener('click', () => { dropdown.classList.add('hidden'); document.querySelector('.dropdown-caret').style.transform = 'rotate(0deg)'; newGame(true); markDirty(); });
+  document.getElementById('btn-restart').addEventListener('click', () => { dropdown.classList.add('hidden'); document.querySelector('.dropdown-caret').style.transform = 'rotate(0deg)'; restartGame(); markDirty(); });
+  document.getElementById('btn-undo').addEventListener('click', () => { dropdown.classList.add('hidden'); document.querySelector('.dropdown-caret').style.transform = 'rotate(0deg)'; undo(state); saveGameState(serializeState(state)); markDirty(); });
+  
+  document.getElementById('btn-stats').addEventListener('click', () => {
+    dropdown.classList.add('hidden');
+    document.querySelector('.dropdown-caret').style.transform = 'rotate(0deg)';
+    if (showModeSelect) {
+      showModeSelect = false;
+      markDirty();
+      return;
+    }
+    const opening = !showStats;
+    showStats = opening;
+    showModeSelect = false;
+    if (opening) overlayJustOpened = true;
+    markDirty();
+  });
+  
+  document.getElementById('btn-mode').addEventListener('click', () => {
+    dropdown.classList.add('hidden');
+    document.querySelector('.dropdown-caret').style.transform = 'rotate(0deg)';
+    if (showStats) {
+      showStats = false;
+      markDirty();
+      return;
+    }
+    const opening = !showModeSelect;
+    showModeSelect = opening;
+    showStats = false;
+    if (opening) overlayJustOpened = true;
+    markDirty();
+  });
 
   // Pause the loop when the page/tab/app is hidden (screen off, app switched)
   document.addEventListener('visibilitychange', () => {
@@ -95,30 +145,6 @@ function restartGame() {
 }
 
 function handleAction(action) {
-  // Allow closing overlays regardless of game state
-  if (action.type === 'button') {
-    if (action.button === 'stats') {
-      const opening = !showStats;
-      showStats = opening;
-      showModeSelect = false;
-      if (opening) overlayJustOpened = true;
-      markDirty();
-      return;
-    }
-    if (action.button === 'mode') {
-      const opening = !showModeSelect;
-      showModeSelect = opening;
-      showStats = false;
-      if (opening) overlayJustOpened = true;
-      markDirty();
-      return;
-    }
-    if (action.button === 'undo') { undo(state); saveGameState(serializeState(state)); markDirty(); return; }
-    if (action.button === 'restart') { restartGame(); markDirty(); return; }
-    if (action.button === 'new') { newGame(true); markDirty(); return; }
-    if (action.button === 'winNewGame') { newGame(false); markDirty(); return; }
-  }
-
   // Overlays block game interaction
   if (showStats || showModeSelect) return;
   if (state.won) return;
@@ -290,26 +316,11 @@ function render(dt) {
   const l = getLayout();
   clear();
 
-  // Header bar — frosted dark panel
-  const barH = 38;
-  drawHeaderBar(l.w, barH);
-
-  // Draw top bar buttons
-  const btnW = 68, btnH = 28, btnFS = 12;
-  const btnY = (barH - btnH) / 2;
-  drawIconButton(8,           btnY, btnW, btnH, 'Stats', btnFS, 'stats');
-  drawIconButton(8 + btnW + 6, btnY, btnW, btnH, 'Mode',  btnFS, 'mode');
-
-  // Timer and moves (centered in header)
+  // Update HTML header timer and moves
   const secs = Math.floor(state.elapsed / 1000);
   const mins = Math.floor(secs / 60);
-  const timeStr = `${mins}:${(secs % 60).toString().padStart(2, '0')}`;
-  drawText(l.w / 2, barH / 2, `♣  ${timeStr}  ·  ${state.moves} moves`, 12, 'center');
-
-  // Right-side buttons: Undo | Restart | New  (3 buttons)
-  drawButton(l.w - btnW * 3 - 22, btnY, btnW, btnH, 'Undo',    btnFS);
-  drawButton(l.w - btnW * 2 - 14, btnY, btnW, btnH, '↩ Restart', btnFS);
-  drawButton(l.w - btnW - 8,      btnY, btnW, btnH, 'New',     btnFS);
+  document.getElementById('time-display').innerText = `${mins}:${(secs % 60).toString().padStart(2, '0')}`;
+  document.getElementById('moves-display').innerText = state.moves;
 
   // Stock
   if (state.stock.length > 0) {
@@ -636,16 +647,15 @@ function drawModeButton(x, y, w, h, text, active) {
 
 // We need to extend the hitTest in input.js to detect overlay buttons.
 // Instead, we add a global click handler that detects overlay-specific clicks.
-canvas.addEventListener('click', overlayClickHandler);
-canvas.addEventListener('touchend', (e) => {
+window.addEventListener('click', overlayClickHandler);
+window.addEventListener('touchend', (e) => {
   if (showStats || showModeSelect || (state && state.won)) {
     const t = e.changedTouches[0];
     overlayClickHandler({
       clientX: t.clientX,
       clientY: t.clientY,
       stopPropagation: () => {
-        e.stopPropagation();
-        if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+        // e.stopPropagation();
       }
     });
   }
