@@ -9,6 +9,9 @@ let lastTapTime = 0;
 let lastTapTarget = null;
 let touchActive = false; // prevent ghost clicks after touch
 
+let longPressTimer = null;
+let peekZoneId = null;
+
 export function initInput(canvas, actionCallback, moveCallback) {
   onAction = actionCallback;
   onMove = moveCallback || null;
@@ -58,14 +61,42 @@ export function initInput(canvas, actionCallback, moveCallback) {
 export function getDragState() { return dragState; }
 
 function handleStart(x, y) {
-  const hit = hitTest(x, y);
+  // Check if there is an active peek overlay and hit-test against it first.
+  let hit = null;
+  const state = window.__gameState;
+  const l = getLayout();
+  
+  let peekHit = false;
+  let pc = null;
+
+  if (peekZoneId && l.peekCards && l.peekCards.length > 0) {
+      for (let i = l.peekCards.length - 1; i >= 0; i--) {
+          const item = l.peekCards[i];
+          if (inRect(x, y, item.x, item.y, item.w, item.h)) {
+              hit = { sourceZoneId: peekZoneId, cardIndex: item.cardIndex };
+              peekHit = true;
+              pc = item;
+              break;
+          }
+      }
+      
+      // If we clicked the dark background but missed a card, abort.
+      if (!hit) {
+          if (state) state.peekZoneId = null;
+          peekZoneId = null;
+          if (onMove) onMove();
+          return;
+      }
+  } else {
+      hit = hitTest(x, y);
+  }
+
   if (!hit) return;
 
   // Double tap detection
   const now = Date.now();
   const isDoubleTap = (now - lastTapTime < 400) &&
-    lastTapTarget && lastTapTarget.source === hit.source &&
-    lastTapTarget.colIndex === hit.colIndex &&
+    lastTapTarget && lastTapTarget.sourceZoneId === hit.sourceZoneId &&
     lastTapTarget.cardIndex === hit.cardIndex;
   lastTapTime = now;
   lastTapTarget = hit;
@@ -82,33 +113,107 @@ function handleStart(x, y) {
     return;
   }
 
+  let realStartX = x;
+  let realStartY = y;
+  let startX = x;
+  let startY = y;
+
+  if (peekHit && pc) {
+      const pos = getCardPosition(state, hit.sourceZoneId, hit.cardIndex);
+      if (pos) {
+          const scaleW = l.cardW / pc.w;
+          const scaleH = l.cardH / pc.h;
+          startX = pos.x + (x - pc.x) * scaleW;
+          startY = pos.y + (y - pc.y) * scaleH;
+      }
+  }
+
   // Start drag
   dragState = {
     ...hit,
-    startX: x,
-    startY: y,
+    realStartX,
+    realStartY,
+    startX,
+    startY,
     currentX: x,
     currentY: y,
     dragging: false,
+    isPeekHit: peekHit
   };
+
+  if (!peekHit && hit.sourceZoneId && hit.sourceZoneId.startsWith('tableau-')) {
+     longPressTimer = setTimeout(() => {
+         const state = window.__gameState;
+         if (state) {
+             state.peekZoneId = hit.sourceZoneId;
+             peekZoneId = hit.sourceZoneId;
+             dragState = null;
+             if (onMove) onMove(); // trigger render
+         }
+     }, 400); // 400ms long press
+  }
 }
 
 function handleMove(x, y) {
+  if (longPressTimer) {
+     const dx = dragState ? (x - dragState.realStartX) : 0;
+     const dy = dragState ? (y - dragState.realStartY) : 0;
+     if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
+         clearTimeout(longPressTimer);
+         longPressTimer = null;
+     }
+  }
+
   if (!dragState) return;
-  const dx = x - dragState.startX;
-  const dy = y - dragState.startY;
+  const dx = x - dragState.realStartX;
+  const dy = y - dragState.realStartY;
+  
   if (!dragState.dragging && (Math.abs(dx) > 10 || Math.abs(dy) > 10)) {
     dragState.dragging = true;
   }
-  // Always update position (needed for offset calculation in render)
+
   dragState.currentX = x;
   dragState.currentY = y;
+
+  if (dragState.isPeekHit) {
+      if (Math.sqrt(dx*dx + dy*dy) > 150) {
+          dragState.isPeekHit = false;
+          const state = window.__gameState;
+          if (state) state.peekZoneId = null;
+          peekZoneId = null;
+      }
+  }
+
   // Only trigger a redraw when actively dragging
   if (dragState.dragging && onMove) onMove();
 }
 
 function handleEnd(x, y) {
+  if (longPressTimer) {
+     clearTimeout(longPressTimer);
+     longPressTimer = null;
+  }
+  
   if (!dragState) return;
+
+  if (dragState.isPeekHit) {
+      if (dragState.dragging) {
+          // Allowed wiggle to see under finger. Let go = cancel dragging, keep overlay.
+          dragState = null;
+          if (onMove) onMove();
+          return;
+      } else {
+          // Direct tap in overlay = dismiss overlay and perform a smart move
+          const state = window.__gameState;
+          if (state) state.peekZoneId = null;
+          peekZoneId = null;
+          onAction({ type: 'tap', ...dragState });
+          dragState = null;
+          if (onMove) onMove();
+          return;
+      }
+  }
+
   if (dragState.dragging) {
     const drop = findDropTarget(x, y);
     onAction({ type: 'drop', from: dragState, to: drop });

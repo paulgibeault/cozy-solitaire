@@ -99,11 +99,16 @@ export const SpiderRules = {
          for (let i = cardIndex; i < cards.length - 1; i++) {
              const c = cards[i];
              const n = cards[i+1];
-             if (c.suit !== n.suit || c.order !== n.order + 1) return false;
+             if (!this.isValidRunLink(c, n)) return false;
          }
          return true;
      }
      return false;
+  },
+
+  isValidRunLink(prev, card) {
+      if (!prev.faceUp || !card.faceUp) return false;
+      return prev.suit === card.suit && prev.order === card.order + 1;
   },
 
   findFoundationFor(card, state) { return null; }, 

@@ -1,6 +1,7 @@
 import { COLORS, SUIT_COLORS, CARD_ASPECT, CARD_RADIUS_RATIO, CARD_OVERLAP_FACEDOWN, CARD_OVERLAP_FACEUP,
   PILE_GAP_RATIO, TOP_MARGIN_RATIO, FONT_RATIO, SUIT_FONT_RATIO, CENTER_SUIT_RATIO, OVERLAP_RATIO,
   TABLEAU_COLS, FOUNDATION_COUNT, MAX_CARD_W, MAX_CARD_W_PORTRAIT } from './constants.js';
+import { GameRules } from './game.js';
 
 let canvas, ctx;
 let layout = {};
@@ -493,6 +494,7 @@ export function getCardPosition(state, sourceZoneId, cardIndex) {
   let dy = pos.y;
   
   let squashFactor = 1;
+  const rules = GameRules && state.variant ? (GameRules[state.variant] || GameRules['klondike']) : null;
 
   if (zone.type === 'fanDown' && zone.cards.length > 1) {
     const bottomPadding = 16;
@@ -500,7 +502,15 @@ export function getCardPosition(state, sourceZoneId, cardIndex) {
     
     let totalOffset = 0;
     for (let i = 0; i < zone.cards.length - 1; i++) {
-        totalOffset += zone.cards[i].faceUp ? l.overlapDown : l.overlapDown * 0.4;
+        const c1 = zone.cards[i];
+        const c2 = zone.cards[i+1];
+        if (!c1.faceUp) {
+            totalOffset += l.overlapDown * 0.15;
+        } else if (rules && rules.isValidRunLink && rules.isValidRunLink(c1, c2)) {
+            totalOffset += l.overlapDown * 0.25;
+        } else {
+            totalOffset += l.overlapDown;
+        }
     }
     
     if (totalOffset > maxOffset && maxOffset > 0) {
@@ -510,9 +520,18 @@ export function getCardPosition(state, sourceZoneId, cardIndex) {
 
   // Add offsets based on type for cards prior to this index
   for (let i = 0; i < cardIndex; i++) {
-     const c = zone.cards[i];
+     const c1 = zone.cards[i];
      if (zone.type === 'fanDown') {
-         dy += (c.faceUp ? l.overlapDown : l.overlapDown * 0.4) * squashFactor;
+         let offset = l.overlapDown;
+         if (!c1.faceUp) {
+             offset = l.overlapDown * 0.15;
+         } else {
+             const c2 = zone.cards[i+1];
+             if (c2 && rules && rules.isValidRunLink && rules.isValidRunLink(c1, c2)) {
+                 offset = l.overlapDown * 0.25;
+             }
+         }
+         dy += offset * squashFactor;
      } else if (zone.type === 'fanRightLimited') {
          const cardsToShow = state.drawCount;
          if (i >= zone.cards.length - cardsToShow) {
@@ -522,4 +541,67 @@ export function getCardPosition(state, sourceZoneId, cardIndex) {
   }
 
   return { x: dx, y: dy, squashFactor };
+}
+
+export function drawPeekOverlay(zoneId, state, drag) {
+  const l = getLayout();
+  const zone = state.zones.get(zoneId);
+  if (!zone) return;
+
+  ctx.fillStyle = 'rgba(0,0,0,0.8)';
+  ctx.fillRect(0, 0, l.w, l.h);
+
+  // Draw magnified column in the center
+  let scale = 1.35;
+  if (l.w > l.h) scale = 1.1; // Smaller scale on landscape to fit
+
+  const peekCardW = l.cardW * scale;
+
+  ctx.save();
+  const offsetX = l.w / 2 - peekCardW / 2;
+  const offsetY = Math.max(l.h * 0.08, 20);
+  ctx.translate(offsetX, offsetY); 
+  ctx.scale(scale, scale);
+
+  let yOffset = 0;
+  l.peekCards = []; // Store coordinates here
+  const cachedRules = GameRules && state.variant ? (GameRules[state.variant] || GameRules['klondike']) : null;
+
+  for (let i = 0; i < zone.cards.length; i++) {
+     const card = zone.cards[i];
+     
+     // Store absolute coordinates for hit-testing before drawing to get correct Y
+     // The entire context is translated by offsetX/offsetY and scaled.
+     l.peekCards.push({
+         cardIndex: i,
+         x: offsetX,
+         y: offsetY + (yOffset * scale),
+         w: peekCardW,
+         h: l.cardH * scale
+     });
+
+     let dragOffsetX = 0;
+     let dragOffsetY = 0;
+     if (drag && drag.dragging && drag.isPeekHit && drag.sourceZoneId === zoneId && i >= drag.cardIndex) {
+         const visualDx = (drag.currentX - drag.realStartX);
+         const visualDy = (drag.currentY - drag.realStartY);
+         dragOffsetX = visualDx / scale;
+         dragOffsetY = visualDy / scale;
+     }
+
+     if (card.faceUp) {
+         drawCardFace(dragOffsetX, yOffset + dragOffsetY, card);
+         yOffset += l.overlapDown; // Full spacing always in peek view
+     } else {
+         drawCardBack(dragOffsetX, yOffset + dragOffsetY);
+         yOffset += l.overlapDown * 0.15;
+     }
+  }
+
+  // Adjust recorded heights so hitboxes don't overlap previous cards incorrectly
+  for (let i = 0; i < l.peekCards.length - 1; i++) {
+      l.peekCards[i].h = l.peekCards[i+1].y - l.peekCards[i].y;
+  }
+
+  ctx.restore();
 }

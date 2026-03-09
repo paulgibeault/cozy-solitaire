@@ -1,7 +1,7 @@
 // main.js — Entry point, game loop, state machine
 import { initRenderer, recalcLayout, getLayout, clear, drawCardBack, drawCardFace,
   drawEmptyPile, drawHighlight, drawText, getCardPosition, drawButton,
-  spawnWinParticles, updateAndDrawParticles, drawSquashedLabel } from './renderer.js';
+  spawnWinParticles, updateAndDrawParticles, drawSquashedLabel, drawPeekOverlay } from './renderer.js';
 import { initInput, getDragState } from './input.js';
 import { updateTweens, hasTweens } from './tween.js';
 import { createGameState, dealStock, moveCards, isWon, allCardsFaceUp, getAutoCompleteCard, undo, undoTo, canRecycleStock,
@@ -430,7 +430,7 @@ function render(dt) {
   }
 
   // Draw dragged cards on top
-  if (drag && drag.dragging) {
+  if (drag && drag.dragging && !drag.isPeekHit) {
     const offsetX = drag.currentX - drag.startX;
     const offsetY = drag.currentY - drag.startY;
     
@@ -452,6 +452,11 @@ function render(dt) {
     drawText(l.w / 2, l.h / 2 - 40, '🎉 You Won! 🎉', 28, 'center');
     drawText(l.w / 2, l.h / 2, `Time: ${Math.floor(state.elapsed / 1000)}s  Moves: ${state.moves}`, 18, 'center');
     drawButton(l.w / 2 - 50, l.h / 2 + 30, 100, 36, 'New Game', 14);
+  }
+
+  // Peek Overlay
+  if (state.peekZoneId) {
+    drawPeekOverlay(state.peekZoneId, state, drag);
   }
 
   // Stats overlay

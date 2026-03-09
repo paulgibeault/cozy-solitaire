@@ -55,7 +55,12 @@ export const FreeCellRules = {
   canPlaceOnTableau(card, columnCards) {
     if (columnCards.length === 0) return true;
     const top = columnCards[columnCards.length - 1];
-    return top.order === card.order + 1 && top.color !== card.color;
+    return this.isValidRunLink(top, card);
+  },
+
+  isValidRunLink(prev, card) {
+    if (!prev.faceUp || !card.faceUp) return false;
+    return prev.color !== card.color && prev.order === card.order + 1;
   },
 
   canPlaceOnFoundation(card, foundationCards) {
@@ -73,7 +78,7 @@ export const FreeCellRules = {
            for(let i = cardIndex; i < cards.length - 1; i++) {
                const current = cards[i];
                const next = cards[i+1];
-               if (current.color === next.color || current.order !== next.order + 1) {
+               if (!this.isValidRunLink(current, next)) {
                    return false;
                }
            }

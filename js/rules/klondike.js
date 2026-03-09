@@ -78,8 +78,12 @@ export const KlondikeRules = {
   canPlaceOnTableau(card, columnCards) {
     if (columnCards.length === 0) return card.value === 'K';
     const top = columnCards[columnCards.length - 1];
-    if (!top.faceUp) return false;
-    return top.order === card.order + 1 && top.color !== card.color;
+    return this.isValidRunLink(top, card);
+  },
+
+  isValidRunLink(prev, card) {
+    if (!prev.faceUp || !card.faceUp) return false;
+    return prev.color !== card.color && prev.order === card.order + 1;
   },
 
   canPlaceOnFoundation(card, foundationCards) {
