@@ -678,7 +678,7 @@ window.addEventListener('touchend', (e) => {
       clientX: t.clientX,
       clientY: t.clientY,
       stopPropagation: () => {
-        // e.stopPropagation();
+        e.stopPropagation();
       }
     });
   }
