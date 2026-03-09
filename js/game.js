@@ -227,6 +227,9 @@ export function serializeState(state) {
     stockPasses: state.stockPasses,
     encodedInitialZones: initialSerialized,
     seed: state.seed,
+    variant: state.variant,
+    options: state.options,
+    config: state.config,
   };
 }
 
@@ -251,6 +254,19 @@ export function deserializeState(data) {
       }
   }
 
+  const variant = data.variant;
+  let inferredVariant = variant || 'klondike';
+  
+  // Try to infer variant for older saves without it
+  if (!variant && data.encodedZones) {
+    const tableauCount = data.encodedZones.filter(z => z.id.startsWith('tableau')).length;
+    if (tableauCount === 10) inferredVariant = 'spider';
+    else if (tableauCount === 8) inferredVariant = 'freecell';
+  }
+  
+  const rules = GameRules[inferredVariant] || KlondikeRules;
+  const config = data.config || rules.config || { layoutCols: 7, layoutRows: 3 };
+
   return {
     zones,
     drawCount: data.drawCount || 1,
@@ -262,6 +278,9 @@ export function deserializeState(data) {
     seed: data.seed,
     moves: data.moves || 0,
     elapsed: data.elapsed || 0,
-    startTime: data.startTime || Date.now()
+    startTime: data.startTime || Date.now(),
+    variant: inferredVariant,
+    options: data.options || {},
+    config: config
   };
 }
