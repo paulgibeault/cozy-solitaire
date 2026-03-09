@@ -35,12 +35,19 @@ export function initInput(canvas, actionCallback, moveCallback) {
     handleStart(t.clientX, t.clientY);
   }, { passive: false });
   window.addEventListener('touchmove', e => {
-    e.preventDefault();
+    // Only prevent default if touching the canvas or dragging
+    if (e.target === canvas || (dragState && dragState.dragging)) {
+      e.preventDefault();
+    }
     const t = e.touches[0];
     handleMove(t.clientX, t.clientY);
   }, { passive: false });
+
   window.addEventListener('touchend', e => {
-    e.preventDefault();
+    // Only prevent default if touching the canvas
+    if (e.target === canvas) {
+      e.preventDefault();
+    }
     const t = e.changedTouches[0];
     handleEnd(t.clientX, t.clientY);
     // Reset touchActive after a delay to allow this touch cycle to complete
