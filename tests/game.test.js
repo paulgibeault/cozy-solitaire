@@ -11,7 +11,10 @@ function assert(cond, msg) {
 // We need to import ES modules - use dynamic import
 async function run() {
   const { createDeck, shuffleDeck, createCard } = await import('../js/cards.js');
-  const { canPlaceOnTableau, canPlaceOnFoundation, isWon, createGameState, findFoundationFor } = await import('../js/game.js');
+  const { createGameState, isWon } = await import('../js/game.js');
+  const { KlondikeRules } = await import('../js/rules/klondike.js');
+  const canPlaceOnTableau = (card, cards) => KlondikeRules.canPlaceOnTableau(card, cards);
+  const canPlaceOnFoundation = (card, cards) => KlondikeRules.canPlaceOnFoundation(card, cards);
 
   console.log('\n🃏 Deck Creation Tests');
   const deck = createDeck();
@@ -67,32 +70,28 @@ async function run() {
   // Create a won state
   const wonState = createGameState();
   // Clear everything and fill foundations
-  wonState.tableau = Array.from({ length: 7 }, () => []);
-  wonState.stock = [];
-  wonState.waste = [];
   const vals = ['A','2','3','4','5','6','7','8','9','10','J','Q','K'];
   const suitArr = ['♠','♥','♦','♣'];
-  wonState.foundations = suitArr.map(suit =>
-    vals.map(v => { const c = createCard(suit, v); c.faceUp = true; return c; })
-  );
+  suitArr.forEach((suit, i) => {
+    const fzone = wonState.zones.get(`foundation-${i}`);
+    fzone.cards = vals.map(v => { const c = createCard(suit, v); c.faceUp = true; return c; });
+  });
   assert(isWon(wonState) === true, 'Full foundations = win');
 
   // Not won: missing one card
   const almostWon = createGameState();
-  almostWon.tableau = Array.from({ length: 7 }, () => []);
-  almostWon.stock = [];
-  almostWon.waste = [];
-  almostWon.foundations = suitArr.map((suit, i) => {
+  suitArr.forEach((suit, i) => {
+    const fzone = almostWon.zones.get(`foundation-${i}`);
     const cards = vals.map(v => { const c = createCard(suit, v); c.faceUp = true; return c; });
     if (i === 0) cards.pop(); // remove King of spades
-    return cards;
+    fzone.cards = cards;
   });
   assert(isWon(almostWon) === false, 'Missing one card = not won');
 
   // Find foundation
-  const emptyF = [[], [], [], []];
-  assert(findFoundationFor(aceH, emptyF) >= 0, 'Ace finds empty foundation');
-  assert(findFoundationFor(twoH, emptyF) === -1, 'Two finds no empty foundation');
+  const fakeStateForAce = createGameState();
+  assert(KlondikeRules.findFoundationFor(aceH, fakeStateForAce) !== null, 'Ace finds empty foundation');
+  assert(KlondikeRules.findFoundationFor(twoH, fakeStateForAce) === null, 'Two finds no empty foundation');
 
   console.log(`\n${'='.repeat(40)}`);
   console.log(`Results: ${passed} passed, ${failed} failed`);
