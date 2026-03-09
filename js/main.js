@@ -1,7 +1,7 @@
 // main.js — Entry point, game loop, state machine
 import { initRenderer, recalcLayout, getLayout, clear, drawCardBack, drawCardFace,
   drawEmptyPile, drawHighlight, drawText, getCardPosition, drawButton,
-  spawnWinParticles, updateAndDrawParticles } from './renderer.js';
+  spawnWinParticles, updateAndDrawParticles, drawSquashedLabel } from './renderer.js';
 import { initInput, getDragState } from './input.js';
 import { updateTweens, hasTweens } from './tween.js';
 import { createGameState, dealStock, moveCards, isWon, allCardsFaceUp, getAutoCompleteCard, undo, undoTo, canRecycleStock,
@@ -190,7 +190,8 @@ function handleAction(action) {
       if (fi) {
         moveFromHit(action, fi);
       } else if (action.sourceZoneId && action.sourceZoneId === 'waste') {
-        for (let i = 0; i < (state.config.layoutCols || 7); i++) {
+        const cols = state.config ? state.config.layoutCols : 7;
+        for (let i = 0; i < cols; i++) {
           const tZone = state.zones.get(`tableau-${i}`);
           if (tZone && rules.canDrop(card, tZone, tZone.id, state)) {
             moveFromHit(action, tZone.id);
@@ -391,6 +392,10 @@ function render(dt) {
                 if (zone.type === 'fanRightLimited' && i < zone.cards.length - 1) {
                     drawCardFace(cPos.x, cPos.y, card, 0.9);
                 }
+                
+                if (cPos.squashFactor < 0.8 && i < zone.cards.length - 1) {
+                    drawSquashedLabel(cPos.x, cPos.y, card);
+                }
             } else {
                 drawCardBack(cPos.x, cPos.y);
             }
@@ -402,8 +407,9 @@ function render(dt) {
   if (drag && drag.dragging) {
     const card = getCardFromHit(drag);
     if (card) {
+       const rules = GameRules[state.variant] || GameRules['klondike'];
        for (const [zoneId, zone] of state.zones.entries()) {
-           if (KlondikeRules.canDrop(card, zone, zoneId)) {
+           if (rules.canDrop(card, zone, zoneId, state)) {
                const pos = l.zones.get(zoneId);
                if (zone.isEmpty() || zone.type !== 'fanDown') {
                   drawHighlight(pos.x, pos.y);
@@ -426,6 +432,9 @@ function render(dt) {
        for (let i = drag.cardIndex; i < zone.cards.length; i++) {
            const pos = getCardPosition(state, drag.sourceZoneId, i);
            drawCardFace(pos.x + offsetX, pos.y + offsetY, zone.cards[i]);
+           if (pos.squashFactor < 0.8 && i < zone.cards.length - 1) {
+               drawSquashedLabel(pos.x + offsetX, pos.y + offsetY, zone.cards[i]);
+           }
        }
     }
   }

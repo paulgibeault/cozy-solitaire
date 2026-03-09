@@ -441,6 +441,46 @@ export function updateAndDrawParticles(dt) {
   return particles.length > 0;
 }
 
+export function drawSquashedLabel(x, y, card) {
+  const { cardW } = layout;
+  ctx.save();
+
+  const str = `${card.value}${card.suit}`;
+  ctx.font = 'bold 13px Georgia, serif';
+  const tw = ctx.measureText(str).width;
+
+  const bx = x + cardW - tw - 12; // top right
+  const by = y + 4;
+  const bw = tw + 8;
+  const bh = 18;
+  const r = 4;
+
+  ctx.beginPath();
+  ctx.moveTo(bx + r, by);
+  ctx.lineTo(bx + bw - r, by);
+  ctx.quadraticCurveTo(bx + bw, by, bx + bw, by + r);
+  ctx.lineTo(bx + bw, by + bh - r);
+  ctx.quadraticCurveTo(bx + bw, by + bh, bx + bw - r, by + bh);
+  ctx.lineTo(bx + r, by + bh);
+  ctx.quadraticCurveTo(bx, by + bh, bx, by + bh - r);
+  ctx.lineTo(bx, by + r);
+  ctx.quadraticCurveTo(bx, by, bx + r, by);
+  ctx.closePath();
+
+  ctx.fillStyle = COLORS.cardFace;
+  ctx.fill();
+  ctx.strokeStyle = COLORS.cardBorder;
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  ctx.fillStyle = card.color === 'red' ? COLORS.red : COLORS.black;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(str, bx + bw / 2, by + bh / 2 + 1);
+
+  ctx.restore();
+}
+
 export function getCardPosition(state, sourceZoneId, cardIndex) {
   const l = layout;
   const pos = l.zones.get(sourceZoneId);
@@ -451,12 +491,28 @@ export function getCardPosition(state, sourceZoneId, cardIndex) {
 
   let dx = pos.x;
   let dy = pos.y;
+  
+  let squashFactor = 1;
+
+  if (zone.type === 'fanDown' && zone.cards.length > 1) {
+    const bottomPadding = 16;
+    const maxOffset = l.h - pos.y - l.cardH - bottomPadding;
+    
+    let totalOffset = 0;
+    for (let i = 0; i < zone.cards.length - 1; i++) {
+        totalOffset += zone.cards[i].faceUp ? l.overlapDown : l.overlapDown * 0.4;
+    }
+    
+    if (totalOffset > maxOffset && maxOffset > 0) {
+        squashFactor = maxOffset / totalOffset;
+    }
+  }
 
   // Add offsets based on type for cards prior to this index
   for (let i = 0; i < cardIndex; i++) {
      const c = zone.cards[i];
      if (zone.type === 'fanDown') {
-         dy += c.faceUp ? l.overlapDown : l.overlapDown * 0.4;
+         dy += (c.faceUp ? l.overlapDown : l.overlapDown * 0.4) * squashFactor;
      } else if (zone.type === 'fanRightLimited') {
          const cardsToShow = state.drawCount;
          if (i >= zone.cards.length - cardsToShow) {
@@ -465,5 +521,5 @@ export function getCardPosition(state, sourceZoneId, cardIndex) {
      }
   }
 
-  return { x: dx, y: dy };
+  return { x: dx, y: dy, squashFactor };
 }

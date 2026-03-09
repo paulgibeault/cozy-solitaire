@@ -149,7 +149,8 @@ export function dealStock(state) {
 // Check if stock can be recycled
 export function canRecycleStock(state) {
   if (!state.zones.get('stock').isEmpty()) return true; // Can still draw
-  if (state.zones.get('waste').isEmpty()) return false;
+  const waste = state.zones.get('waste');
+  if (!waste || waste.isEmpty()) return false;
   if (state.maxPasses === Infinity) return true;
   return state.stockPasses < state.maxPasses;
 }

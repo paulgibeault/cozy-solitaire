@@ -18,11 +18,11 @@ export function initInput(canvas, actionCallback, moveCallback) {
     if (touchActive) return; // ignore ghost click after touch
     handleStart(e.clientX, e.clientY);
   });
-  canvas.addEventListener('mousemove', e => {
+  window.addEventListener('mousemove', e => {
     if (touchActive) return;
     handleMove(e.clientX, e.clientY);
   });
-  canvas.addEventListener('mouseup', e => {
+  window.addEventListener('mouseup', e => {
     if (touchActive) return;
     handleEnd(e.clientX, e.clientY);
   });
@@ -34,12 +34,12 @@ export function initInput(canvas, actionCallback, moveCallback) {
     const t = e.touches[0];
     handleStart(t.clientX, t.clientY);
   }, { passive: false });
-  canvas.addEventListener('touchmove', e => {
+  window.addEventListener('touchmove', e => {
     e.preventDefault();
     const t = e.touches[0];
     handleMove(t.clientX, t.clientY);
   }, { passive: false });
-  canvas.addEventListener('touchend', e => {
+  window.addEventListener('touchend', e => {
     e.preventDefault();
     const t = e.changedTouches[0];
     handleEnd(t.clientX, t.clientY);
@@ -90,7 +90,7 @@ function handleMove(x, y) {
   if (!dragState) return;
   const dx = x - dragState.startX;
   const dy = y - dragState.startY;
-  if (!dragState.dragging && (Math.abs(dx) > 5 || Math.abs(dy) > 5)) {
+  if (!dragState.dragging && (Math.abs(dx) > 10 || Math.abs(dy) > 10)) {
     dragState.dragging = true;
   }
   // Always update position (needed for offset calculation in render)
