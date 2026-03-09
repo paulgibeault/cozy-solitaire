@@ -85,3 +85,9 @@ export const RECYCLE_MODES = [
   { id: 'pass3', label: '3 Passes', passes: 3 },
   { id: 'pass1', label: '1 Pass', passes: 1 },
 ];
+
+export const SPIDER_MODES = [
+  { id: '1suit', label: '1 Suit (Easy)', suits: ['♠'] },
+  { id: '2suit', label: '2 Suits (Medium)', suits: ['♠', '♥'] },
+  { id: '4suit', label: '4 Suits (Hard)', suits: ['♠', '♥', '♣', '♦'] },
+];

@@ -9,7 +9,7 @@ import { createGameState, dealStock, moveCards, isWon, allCardsFaceUp, getAutoCo
 import { loadStats, saveStats, saveGameState, loadGameState, clearGameState,
   loadModeSettings, saveModeSettings } from './storage.js';
 import { TABLEAU_COLS, FOUNDATION_COUNT, AUTO_COMPLETE_DELAY, COLORS,
-  DRAW_MODES, RECYCLE_MODES, VARIANTS } from './constants.js';
+  DRAW_MODES, RECYCLE_MODES, SPIDER_MODES, VARIANTS } from './constants.js';
 import { UI } from './ui.js';
 
 const canvas = document.getElementById('game');
@@ -23,6 +23,8 @@ function getGameTypeKey() {
   const v = modeSettings.variant || 'klondike';
   if (v === 'klondike') {
     return `${v}_${modeSettings.drawMode}_${modeSettings.recycleMode}`;
+  } else if (v === 'spider') {
+    return `${v}_${modeSettings.spiderSuits || '1suit'}`;
   }
   return v; // future variants will append their own specific modifiers here
 }
@@ -128,6 +130,11 @@ function newGame(countPrevious = true, seed = undefined) {
     options = {
        drawCount: drawMode.drawCount,
        passes: recycleMode.passes
+    };
+  } else if (variant === 'spider') {
+    const spiderMode = SPIDER_MODES.find(m => m.id === (modeSettings.spiderSuits || '1suit')) || SPIDER_MODES[0];
+    options = {
+       suits: spiderMode.suits
     };
   }
   
@@ -612,6 +619,18 @@ function drawModeOverlay(l) {
       rx += recBtnW + 8;
     }
     y += recBtnH + gap;
+  } else if (activeVariant === 'spider') {
+    drawText(cx, y, 'Spider Suits', 13, 'center');
+    y += gap;
+    const suitBtnW = 120, suitBtnH = 34;
+    const suitTotalW = SPIDER_MODES.length * suitBtnW + (SPIDER_MODES.length - 1) * 8;
+    let sx = cx - suitTotalW / 2;
+    for (const mode of SPIDER_MODES) {
+      const isActive = (modeSettings.spiderSuits || '1suit') === mode.id;
+      drawModeButton(sx, y, suitBtnW, suitBtnH, mode.label, isActive);
+      sx += suitBtnW + 8;
+    }
+    y += suitBtnH + gap;
   }
 
   // Optional Seed Input
@@ -697,7 +716,8 @@ function modeModalRect(l) {
   const gap = 28;
   const btnH = 34;
   const isKlondike = (modeSettings.variant || 'klondike') === 'klondike';
-  const modalW = Math.min(350, l.w - 20);
+  const isSpider = (modeSettings.variant || 'klondike') === 'spider';
+  const modalW = Math.min(390, l.w - 20);
   
   // Title section uses 76 pixels (36 + 20 + 20)
   // Variant section uses 90 pixels (gap(28) + btn(34) + gap(28))
@@ -709,6 +729,9 @@ function modeModalRect(l) {
      // Draw count section: 90
      // Passes section: 90
      modalH += 180;
+  } else if (isSpider) {
+     // Spider suits section: 90
+     modalH += 90;
   }
   
   return { x: l.w/2 - modalW/2, y: l.h/2 - modalH/2, w: modalW, h: modalH };
@@ -807,6 +830,22 @@ function overlayClickHandler(e) {
         rx += recBtnW + 8;
       }
       my += recBtnH + gap;
+    } else if (activeVariant === 'spider') {
+      const suitBtnW = 120, suitBtnH = 34;
+      my += gap; // "Spider Suits" label
+      const suitTotalW = SPIDER_MODES.length * suitBtnW + (SPIDER_MODES.length - 1) * 8;
+      let sx = cx - suitTotalW / 2;
+      for (const mode of SPIDER_MODES) {
+        if (inRect(x, y, sx, my, suitBtnW, suitBtnH)) {
+          modeSettings.spiderSuits = mode.id;
+          saveModeSettings(modeSettings);
+          markDirty();
+          e.stopPropagation();
+          return;
+        }
+        sx += suitBtnW + 8;
+      }
+      my += suitBtnH + gap;
     }
 
     // Seed Box

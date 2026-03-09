@@ -6,6 +6,7 @@ export const SpiderRules = {
   config: { layoutCols: 10, layoutRows: 3 },
   helpHTML: `
     <p><strong>Goal</strong>: Build 8 sequences of cards descending from King to Ace in the same suit.</p>
+    <p><strong>Modes</strong>: Depending on difficulty (1-Suit, 2-Suit, or 4-Suit), you manage different suits. You must assemble groups of the <em>same suit</em> to move them as a unit.</p>
     <p><strong>Tableau</strong>: Build columns down regardless of suit.</p>
     <p><strong>Movement</strong>: You can only move grouped sequences if they are of the same suit. A complete K-A sequence is automatically moved to a foundation.</p>
     <p><strong>Stock</strong>: Deals one card to every column. You cannot deal if there are empty columns.</p>
