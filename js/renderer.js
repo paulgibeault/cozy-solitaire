@@ -682,54 +682,81 @@ export function drawPeekOverlay(zoneId, state, drag) {
   ctx.fillStyle = 'rgba(0,0,0,0.8)';
   ctx.fillRect(0, 0, l.w, l.h);
 
-  // Draw magnified column in the center
-  let scale = 1.35;
-  if (l.w > l.h) scale = 1.1; // Smaller scale on landscape to fit
+  // Count face-up cards to determine required height
+  let faceUpCount = 0;
+  for (let i = 0; i < zone.cards.length; i++) {
+      if (zone.cards[i].faceUp) faceUpCount++;
+  }
 
-  const peekCardW = l.cardW * scale;
+  // Use a fixed peek spacing that always shows value/suit — not the very compressed global overlapDown
+  // ~35% of cardH is generous enough to see numbers & suits clearly
+  const PEEK_OVERLAP_RATIO = 0.35;
 
-  ctx.save();
-  const offsetX = l.w / 2 - peekCardW / 2;
-  const offsetY = Math.max(l.h * 0.08, 20);
-  ctx.translate(offsetX, offsetY); 
-  ctx.scale(scale, scale);
+  // Available screen space with padding
+  const padX = 20;
+  const padY = 30;
+  const availableH = l.h - padY * 2;
+  const availableW = l.w - padX * 2;
 
-  let yOffset = 0;
-  l.peekCards = []; // Store coordinates here
-  const cachedRules = GameRules && state.variant ? (GameRules[state.variant] || GameRules['klondike']) : null;
+  // Calculate the unscaled required height using the peek overlap spacing
+  const unscaledRequiredH = l.cardH + (Math.max(0, faceUpCount - 1) * l.cardH * PEEK_OVERLAP_RATIO);
+
+  // Scale to fit vertically, then cap by width too
+  let scale = availableH / unscaledRequiredH;
+  const maxScaleByWidth = availableW / l.cardW;
+  scale = Math.min(scale, maxScaleByWidth, 2.0);
+  scale = Math.max(scale, 0.8);
+
+  // Scaled card dimensions for crisp cache lookup
+  const peekCardW = Math.round(l.cardW * scale);
+  const peekCardH = Math.round(l.cardH * scale);
+  const peekRadius = Math.round(l.radius * scale);
+  const peekFontSize = Math.round(l.fontSize * scale);
+  const peekSuitSize = Math.round(l.suitSize * scale);
+  const peekCenterSuitSize = Math.round(l.centerSuitSize * scale);
+  const peekSpacing = peekCardH * PEEK_OVERLAP_RATIO;
+
+  // Total drawn height so we can center
+  const totalDrawH = peekCardH + (Math.max(0, faceUpCount - 1) * peekSpacing);
+  const startX = Math.round((l.w - peekCardW) / 2);
+  const startY = Math.round(Math.max(padY, (l.h - totalDrawH) / 2));
+
+  let yOffset = startY;
+  l.peekCards = [];
 
   for (let i = 0; i < zone.cards.length; i++) {
      const card = zone.cards[i];
-     
+
      if (!card.faceUp) continue; // Skip rendering face-down cards
 
-     // Store absolute coordinates for hit-testing before drawing to get correct Y
-     // The entire context is translated by offsetX/offsetY and scaled.
+     // Fetch a high-res cache at peek size — avoids blurry upscaling
+     const cached = getCardFaceCache(peekCardW, peekCardH, peekRadius, peekFontSize, peekSuitSize, peekCenterSuitSize, card);
+
+     // Store absolute coordinates for hit-testing
      l.peekCards.push({
          cardIndex: i,
-         x: offsetX,
-         y: offsetY + (yOffset * scale),
+         x: startX,
+         y: yOffset,
          w: peekCardW,
-         h: l.cardH * scale
+         h: peekCardH
      });
 
      let dragOffsetX = 0;
      let dragOffsetY = 0;
      if (drag && drag.dragging && drag.isPeekHit && drag.sourceZoneId === zoneId && i >= drag.cardIndex) {
-         const visualDx = (drag.currentX - drag.realStartX);
-         const visualDy = (drag.currentY - drag.realStartY);
-         dragOffsetX = visualDx / scale;
-         dragOffsetY = visualDy / scale;
+         dragOffsetX = (drag.currentX - drag.realStartX);
+         dragOffsetY = (drag.currentY - drag.realStartY);
      }
 
-     drawCardFace(dragOffsetX, yOffset + dragOffsetY, card);
-     yOffset += l.overlapDown; // Full spacing always in peek view
+     ctx.save();
+     ctx.drawImage(cached, startX + dragOffsetX - 2, yOffset + dragOffsetY - 2);
+     ctx.restore();
+
+     yOffset += peekSpacing;
   }
 
   // Adjust recorded heights so hitboxes don't overlap previous cards incorrectly
   for (let i = 0; i < l.peekCards.length - 1; i++) {
       l.peekCards[i].h = l.peekCards[i+1].y - l.peekCards[i].y;
   }
-
-  ctx.restore();
 }
