@@ -152,6 +152,9 @@ function newGame(countPrevious = true, seed = undefined) {
     };
   }
   
+  // Re-load stats for the new game type key (handles variant changes)
+  stats = loadStats(getGameTypeKey());
+  
   state = createGameState(variant, options, seed);
   updateSeedDisplay();
   window.__gameState = state;
@@ -535,15 +538,27 @@ function drawStatsOverlay(l) {
   let y = cy - modalH / 2 + 36;
   drawText(cx, y, '♠  Statistics', 22, 'center');
 
-  // Game-type subtitle
-  const drawMode    = DRAW_MODES.find(m => m.id === modeSettings.drawMode) || DRAW_MODES[0];
-  const recycleMode = RECYCLE_MODES.find(m => m.id === modeSettings.recycleMode) || RECYCLE_MODES[0];
+  // Game-type subtitle — varies based on variant
+  const variant = modeSettings.variant || 'klondike';
+  let subtitleText = '';
+  if (variant === 'klondike') {
+    const drawMode    = DRAW_MODES.find(m => m.id === modeSettings.drawMode) || DRAW_MODES[0];
+    const recycleMode = RECYCLE_MODES.find(m => m.id === modeSettings.recycleMode) || RECYCLE_MODES[0];
+    subtitleText = `Klondike  ·  ${drawMode.label}  ·  ${recycleMode.label}`;
+  } else if (variant === 'spider') {
+    const spiderMode = SPIDER_MODES.find(m => m.id === (modeSettings.spiderSuits || '1suit')) || SPIDER_MODES[0];
+    subtitleText = `Spider  ·  ${spiderMode.label}`;
+  } else if (variant === 'freecell') {
+    subtitleText = 'FreeCell';
+  } else {
+    subtitleText = variant.charAt(0).toUpperCase() + variant.slice(1);
+  }
   y += 20;
   ctx.fillStyle = 'rgba(192,168,112,0.75)';
   ctx.font = '11px Georgia, serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(`${drawMode.label}  ·  ${recycleMode.label}`, cx, y);
+  ctx.fillText(subtitleText, cx, y);
 
   // Divider
   y += 14;
