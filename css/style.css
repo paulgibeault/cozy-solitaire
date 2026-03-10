@@ -306,3 +306,63 @@ canvas {
 #help-modal.hidden {
   display: none !important;
 }
+
+#help-modal {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 85%;
+  max-width: 400px;
+  background: rgba(30, 41, 33, 0.98);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(192, 168, 112, 0.4);
+  border-radius: 8px;
+  padding: 24px;
+  color: #ede2c8;
+  font-family: Georgia, serif;
+  z-index: 1000;
+  pointer-events: auto;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+  max-height: 80%;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+#help-title {
+  color: #c0a870;
+  font-size: 20px;
+  border-bottom: 1px solid rgba(192, 168, 112, 0.4);
+  padding-bottom: 10px;
+  margin-bottom: 15px;
+  margin-top: 0;
+  text-align: center;
+}
+
+#help-content {
+  font-size: 14px;
+  line-height: 1.5;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+#btn-close-help {
+  margin-top: auto;
+  width: 100%;
+  padding: 12px;
+  background: #4a3824;
+  color: #f0e4cc;
+  border: 1px solid #8a7050;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: Georgia, serif;
+  font-weight: bold;
+  transition: background 0.2s;
+}
+#btn-close-help:hover {
+  background: #5a4830;
+}

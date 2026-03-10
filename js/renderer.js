@@ -1,8 +1,12 @@
 import { COLORS, SUIT_COLORS, CARD_ASPECT, CARD_RADIUS_RATIO, CARD_OVERLAP_FACEDOWN, CARD_OVERLAP_FACEUP,
-  PILE_GAP_RATIO, TOP_MARGIN_RATIO, FONT_RATIO, SUIT_FONT_RATIO, CENTER_SUIT_RATIO, OVERLAP_RATIO,
+  PILE_GAP_RATIO, TOP_MARGIN_RATIO, FONT_RATIO, SUIT_FONT_RATIO, CENTER_SUIT_RATIO,
   TABLEAU_COLS, FOUNDATION_COUNT, MAX_CARD_W, MAX_CARD_W_PORTRAIT } from './constants.js';
 import { GameRules } from './game.js';
-import { loadModeSettings } from './storage.js';
+
+// Cached setting — updated by main.js via setCollapseRuns() whenever settings change.
+// Avoids calling loadModeSettings() (localStorage + JSON.parse) per card per frame.
+let _collapseRuns = true;
+export function setCollapseRuns(val) { _collapseRuns = val; }
 
 let canvas, ctx;
 let layout = {};
@@ -123,6 +127,10 @@ export function initRenderer(c) {
   recalcLayout();
 }
 
+/** Returns the shared 2D rendering context. Use this in modal draw functions
+ *  instead of calling canvas.getContext('2d') each time. */
+export function getCtx() { return ctx; }
+
 export function recalcLayout() {
   invalidateCardBackCache();
   invalidateCardFaceCache();
@@ -178,7 +186,7 @@ export function recalcLayout() {
 
   let cardH = cardW * CARD_ASPECT;
 
-  const overlapDown = cardH * OVERLAP_RATIO;
+  const overlapDown = cardH * CARD_OVERLAP_FACEUP;
   const overlapRight = cardW * 0.20;
 
   let totalW = (cols * cardW) + ((cols - 1) * 10);
@@ -261,9 +269,8 @@ export function recalcLayout() {
                 }
                 
                 let squashedOffset = offset * squashFactor;
-                const modeSettings = loadModeSettings();
                 if (c1.faceUp && squashedOffset < minVisibleHeight && squashFactor < 1) {
-                    if (isRun && modeSettings.collapseRuns) {
+                    if (isRun && _collapseRuns) {
                         squashedOffset = 0;
                     } else {
                         squashedOffset = Math.min(offset, minVisibleHeight);
@@ -283,6 +290,13 @@ export function recalcLayout() {
                     layout.globalRootYOffset = requiredPush;
                 }
             }
+        }
+    }
+    
+    // 4. Apply the global offset to all zone coordinates permanently in this layout
+    if (layout.globalRootYOffset !== 0) {
+        for (const pos of layout.zones.values()) {
+            pos.y += layout.globalRootYOffset;
         }
     }
   }
@@ -347,6 +361,11 @@ function getCardFaceCache(cardW, cardH, radius, fontSize, suitSize, centerSuitSi
   const cacheKey = `${card.id}_${cardW}_${cardH}`;
   if (cardFaceCache.has(cacheKey)) {
     return cardFaceCache.get(cacheKey);
+  }
+  // Evict oldest entry if the cache is getting large (e.g. Spider with 104-card decks)
+  const MAX_FACE_CACHE = 120;
+  if (cardFaceCache.size >= MAX_FACE_CACHE) {
+    cardFaceCache.delete(cardFaceCache.keys().next().value);
   }
 
   const c = document.createElement('canvas');
@@ -484,6 +503,8 @@ export function drawText(x, y, text, size = 14, align = 'left') {
 const particles = [];
 
 export function spawnWinParticles() {
+  // Remove any leftover particles from a previous win animation
+  particles.length = 0;
   const colors = [COLORS.winParticle1, COLORS.winParticle2, COLORS.winParticle3];
   for (let i = 0; i < 80; i++) {
     particles.push({
@@ -521,41 +542,32 @@ export function drawSquashedLabel(x, y, card, state, zoneId, cardIndex) {
   const { cardW } = layout;
   ctx.save();
 
-  let displayCard = card;
-  let isSuperCollapsedGroup = false;
-  
-  // If this card is the bottom of a super-collapsed run, find the top card of that run
-  if (state && zoneId && cardIndex !== undefined) {
-      const zone = state.zones.get(zoneId);
-      if (zone) {
-          // Look backwards to see how far the super-collapsed run goes
-          let topRunIndex = cardIndex;
-          while (topRunIndex > 0 && zone.cards[topRunIndex - 1]._superCollapsed) {
-              topRunIndex--;
-              isSuperCollapsedGroup = true;
-          }
-          if (topRunIndex < cardIndex) {
-              displayCard = zone.cards[topRunIndex];
-          } else if (card._superCollapsed) {
-              isSuperCollapsedGroup = true;
-          }
-      }
+  // Check layout's super-collapsed tracking (never mutates card objects)
+  const scSet = layout.superCollapsed && layout.superCollapsed.get(zoneId);
+  if (!scSet) { ctx.restore(); return; }
+
+  // Find the topmost card of the super-collapsed run at or before cardIndex
+  let topRunIndex = cardIndex;
+  let isSuperCollapsedGroup = scSet.has(cardIndex);
+  if (!isSuperCollapsedGroup) {
+    // This card might be the card just above a collapsed run — walk back
+    let idx = cardIndex - 1;
+    while (idx >= 0 && scSet.has(idx)) { topRunIndex = idx; idx--; isSuperCollapsedGroup = true; }
+    if (!isSuperCollapsedGroup) { ctx.restore(); return; }
   }
 
-  // Only draw the squashed label if we are actually compressing a run to 0-height
-  if (!isSuperCollapsedGroup) {
-      ctx.restore();
-      return;
+  // Find the top card of the run to display its label
+  const zone = state.zones.get(zoneId);
+  let displayCard = card;
+  if (zone && topRunIndex < cardIndex) {
+    displayCard = zone.cards[topRunIndex];
   }
 
   const str = `${displayCard.value}${displayCard.suit}`;
   ctx.font = 'bold 10px Georgia, serif';
-
   ctx.fillStyle = displayCard.color === 'red' ? COLORS.red : COLORS.black;
   ctx.textAlign = 'right';
   ctx.textBaseline = 'top';
-  
-  // Draw tightly in the top right corner
   ctx.fillText(str, x + cardW - 3, y + 3);
 
   ctx.restore();
@@ -574,10 +586,6 @@ export function getCardPosition(state, sourceZoneId, cardIndex) {
   
   let squashFactor = 1;
   const rules = GameRules && state.variant ? (GameRules[state.variant] || GameRules['klondike']) : null;
-
-  // We need CARD_OVERLAP_FACEDOWN and CARD_OVERLAP_FACEUP. They are globally imported as CARD_OVERLAP_FACEDOWN and CARD_OVERLAP_FACEUP at the top of the file.
-  // Wait, I can't access them directly if they aren't on `layout`. But they are imported at the top!
-  // Let's check imports: import { ..., CARD_OVERLAP_FACEDOWN, CARD_OVERLAP_FACEUP, ... } from './constants.js';
 
   if (zone.type === 'fanDown' && zone.cards.length > 1) {
     const bottomPadding = 16;
@@ -608,6 +616,11 @@ export function getCardPosition(state, sourceZoneId, cardIndex) {
 
   // Calculate intended offsets for *all* cards first
   const offsets = new Array(zone.cards.length).fill(0);
+  // Track which cards are super-collapsed in layout scope (not on card objects)
+  if (!l.superCollapsed) l.superCollapsed = new Map();
+  if (!l.superCollapsed.has(sourceZoneId)) l.superCollapsed.set(sourceZoneId, new Set());
+  const scSet = l.superCollapsed.get(sourceZoneId);
+  scSet.clear(); // rebuild for this zone on each call
 
   for (let i = 0; i < zone.cards.length - 1; i++) {
      const c1 = zone.cards[i];
@@ -627,12 +640,10 @@ export function getCardPosition(state, sourceZoneId, cardIndex) {
          
          let squashedOffset = offset * squashFactor;
 
-         c1._superCollapsed = false;
-         const modeSettings = loadModeSettings();
          if (c1.faceUp && squashedOffset < minVisibleHeight && squashFactor < 1) {
-             if (isRun && modeSettings.collapseRuns) {
+             if (isRun && _collapseRuns) {
                  squashedOffset = 0;
-                 c1._superCollapsed = true;
+                 scSet.add(i);
              } else {
                  squashedOffset = Math.min(offset, minVisibleHeight);
              }
@@ -641,9 +652,6 @@ export function getCardPosition(state, sourceZoneId, cardIndex) {
          offsets[i] = squashedOffset;
      }
   }
-
-  // Use the global root Y offset calculated in recalcLayout to keep all columns aligned
-  dy += l.globalRootYOffset || 0;
 
   // Add offsets based on type for cards prior to this index
   for (let i = 0; i < cardIndex; i++) {
@@ -663,14 +671,13 @@ export function getCardPosition(state, sourceZoneId, cardIndex) {
     const cardsToShow = state.drawCount || 1;
     const startIdx = Math.max(0, zone.cards.length - cardsToShow);
     if (cardIndex < startIdx) {
-        dx = pos.x;
-        dy = pos.y;
+        // If the card is hidden before the visible window, return the zone's base position
+        return { x: pos.x, y: pos.y, squashFactor: 1 };
     } else {
         dx = pos.x + (cardIndex - startIdx) * l.overlapRight;
     }
-    return { x: dx, y: dy, squashFactor: 1 };
   }
-
+  
   return { x: dx, y: dy, squashFactor };
 }
 

@@ -230,6 +230,7 @@ export function serializeState(state) {
     variant: state.variant,
     options: state.options,
     config: state.config,
+    won: state.won,
   };
 }
 
@@ -272,7 +273,7 @@ export function deserializeState(data) {
     drawCount: data.drawCount || 1,
     maxPasses: data.maxPasses ?? Infinity,
     stockPasses: data.stockPasses || 0,
-    won: false,
+    won: data.won || false,
     history: [],
     initialZones,
     seed: data.seed,

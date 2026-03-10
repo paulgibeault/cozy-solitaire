@@ -1,6 +1,7 @@
 // input.js — Mouse/touch input, drag-and-drop
 import { getLayout, getCardPosition } from './renderer.js';
 import { TABLEAU_COLS, FOUNDATION_COUNT, DROP_ZONE_EXPAND_X, DROP_ZONE_EXPAND_Y } from './constants.js';
+import { inRect } from './utils.js';
 
 let onAction = null;
 let onMove = null;   // called whenever drag position changes, to trigger a redraw
@@ -304,6 +305,4 @@ function findDropTarget(x, y) {
   return null;
 }
 
-function inRect(px, py, rx, ry, rw, rh) {
-  return px >= rx && px <= rx + rw && py >= ry && py <= ry + rh;
-}
+

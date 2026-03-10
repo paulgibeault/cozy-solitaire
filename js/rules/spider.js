@@ -1,8 +1,10 @@
 import { Zone } from '../zone.js';
 import { createCard, shuffleDeck } from '../cards.js';
 import { saveUndo } from '../game.js';
+import { BaseRules } from './base.js';
 
 export const SpiderRules = {
+  ...BaseRules,
   config: { layoutCols: 10, layoutRows: 3 },
   helpHTML: `
     <p><strong>Goal</strong>: Build 8 sequences of cards descending from King to Ace in the same suit.</p>
@@ -128,36 +130,42 @@ export const SpiderRules = {
      for (let i = 0; i < 10; i++) {
          const col = state.zones.get(`tableau-${i}`);
          const cards = col.cards;
-         if (cards.length >= 13) {
-             const topCard = cards[cards.length - 1];
-             if (topCard.value === 'A') {
-                 let validSequence = true;
-                 for (let k = 0; k < 12; k++) {
-                     const c = cards[cards.length - 1 - k];
-                     const above = cards[cards.length - 2 - k];
-                     if (!above.faceUp || c.suit !== above.suit || above.order !== c.order + 1) {
-                         validSequence = false;
-                         break;
-                     }
-                 }
-                 if (validSequence) {
-                     let emptyFound = null;
-                     for (let f = 0; f < 8; f++) {
-                         if (state.zones.get(`foundation-${f}`).isEmpty()) {
-                             emptyFound = state.zones.get(`foundation-${f}`);
-                             break;
-                         }
-                     }
-                     if (emptyFound) {
-                         saveUndo(state, 'Completed Spider Sequence');
-                         const moving = col.removeCards(cards.length - 13);
-                         emptyFound.addCards(moving);
-                         const exposed = col.getTopCard();
-                         if (exposed && !exposed.faceUp) exposed.faceUp = true;
-                     }
-                 }
+         if (cards.length < 13) continue;
+
+         const topCard = cards[cards.length - 1];
+         // Quick check: top card must be an Ace
+         if (topCard.value !== 'A' || !topCard.faceUp) continue;
+
+         // Verify the full 13-card K→A sequence is same-suit, all face-up, and descending
+         let validSequence = true;
+         for (let k = 0; k < 12; k++) {
+             const lower = cards[cards.length - 1 - k];     // Ace side
+             const higher = cards[cards.length - 2 - k];   // King side
+             if (!lower.faceUp || !higher.faceUp ||
+                 lower.suit !== higher.suit ||
+                 higher.order !== lower.order + 1) {
+                 validSequence = false;
+                 break;
              }
          }
+
+         if (!validSequence) continue;
+
+         // Find an empty foundation slot
+         let emptyFound = null;
+         for (let f = 0; f < 8; f++) {
+             if (state.zones.get(`foundation-${f}`).isEmpty()) {
+                 emptyFound = state.zones.get(`foundation-${f}`);
+                 break;
+             }
+         }
+         if (!emptyFound) continue;
+
+         saveUndo(state, 'Completed Spider Sequence');
+         const moving = col.removeCards(cards.length - 13);
+         emptyFound.addCards(moving);
+         const exposed = col.getTopCard();
+         if (exposed && !exposed.faceUp) exposed.faceUp = true;
      }
   }
 };

@@ -45,7 +45,6 @@ export const CARD_ASPECT = 1.45;
 export const CARD_RADIUS_RATIO = 0.08;
 export const CARD_OVERLAP_FACEDOWN = 0.06;
 export const CARD_OVERLAP_FACEUP = 0.18;
-export const OVERLAP_RATIO = 0.18;
 export const PILE_GAP_RATIO = 0.12;
 export const TOP_MARGIN_RATIO = 0.08;
 export const FONT_RATIO = 0.28;

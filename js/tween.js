@@ -47,12 +47,10 @@ export function clearTweens() {
 const easings = {
   linear: t => t,
   easeOutQuad: t => t * (2 - t),
-  easeOutBack: t => { const s = 1.70158; return 1 + (t - 1) * (t - 1) * ((s + 1) * (t - 1) + s) + (t - 1) * (t - 1); },
   easeInOutQuad: t => t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t,
-};
-// Fix easeOutBack
-easings.easeOutBack = t => {
-  const s = 1.70158;
-  t = t - 1;
-  return t * t * ((s + 1) * t + s) + 1;
+  easeOutBack: t => {
+    const s = 1.70158;
+    t = t - 1;
+    return t * t * ((s + 1) * t + s) + 1;
+  },
 };

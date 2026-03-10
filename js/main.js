@@ -1,7 +1,8 @@
 // main.js — Entry point, game loop, state machine
 import { initRenderer, recalcLayout, getLayout, clear, drawCardBack, drawCardFace,
-  drawEmptyPile, drawHighlight, drawText, getCardPosition, drawButton,
-  spawnWinParticles, updateAndDrawParticles, drawSquashedLabel, drawPeekOverlay } from './renderer.js';
+  drawEmptyPile, drawHighlight, drawText, getCardPosition, drawButton, getCtx,
+  spawnWinParticles, updateAndDrawParticles, drawSquashedLabel, drawPeekOverlay,
+  setCollapseRuns } from './renderer.js';
 import { initInput, getDragState } from './input.js';
 import { updateTweens, hasTweens } from './tween.js';
 import { createGameState, dealStock, moveCards, isWon, allCardsFaceUp, getAutoCompleteCard, undo, undoTo, canRecycleStock,
@@ -11,6 +12,7 @@ import { loadStats, saveStats, saveGameState, loadGameState, clearGameState,
 import { TABLEAU_COLS, FOUNDATION_COUNT, AUTO_COMPLETE_DELAY, COLORS,
   DRAW_MODES, RECYCLE_MODES, SPIDER_MODES, VARIANTS } from './constants.js';
 import { UI } from './ui.js';
+import { inRect, parseSeed } from './utils.js';
 
 const canvas = document.getElementById('game');
 let state = null;
@@ -68,6 +70,7 @@ function init() {
     onToggleCollapse: () => {
       modeSettings.collapseRuns = !modeSettings.collapseRuns;
       saveModeSettings(modeSettings);
+      setCollapseRuns(modeSettings.collapseRuns);
       UI.updateToggles(modeSettings.collapseRuns, modeSettings.showHints);
       recalcLayout();
       markDirty();
@@ -122,6 +125,7 @@ function init() {
   }
 
   updateSeedDisplay();
+  setCollapseRuns(modeSettings.collapseRuns); // sync renderer cache on startup
   UI.updateToggles(modeSettings.collapseRuns, modeSettings.showHints);
   window.__gameState = state;
   recalcLayout();
@@ -428,7 +432,6 @@ function render(dt) {
   }
 
   // Drop zone highlights during drag
-  const modeSettings = loadModeSettings();
   if (drag && drag.dragging && modeSettings.showHints) {
     const card = getCardFromHit(drag);
     if (card) {
@@ -484,7 +487,8 @@ function render(dt) {
   if (showModeSelect) drawModeOverlay(l);
 }
 
-function drawModalBox(ctx, cx, cy, w, h) {
+function drawModalBox(cx, cy, w, h) {
+  const ctx = getCtx();
   const r = 12;
   const x = cx - w / 2, y = cy - h / 2;
   // Box fill
@@ -524,7 +528,7 @@ function drawModalBox(ctx, cx, cy, w, h) {
 }
 
 function drawStatsOverlay(l) {
-  const ctx = canvas.getContext('2d');
+  const ctx = getCtx();
   const cx = l.w / 2;
   const gap = 30;
   const rows = 6;
@@ -533,7 +537,7 @@ function drawStatsOverlay(l) {
   const modalH = 60 + rows * gap + gap * 1.5 + 22;
   const cy = l.h / 2;
 
-  drawModalBox(ctx, cx, cy, modalW, modalH);
+  drawModalBox(cx, cy, modalW, modalH);
 
   let y = cy - modalH / 2 + 36;
   drawText(cx, y, '♠  Statistics', 22, 'center');
@@ -593,107 +597,134 @@ function drawStatsOverlay(l) {
 }
 
 function drawModeOverlay(l) {
-  const ctx = canvas.getContext('2d');
-  const cx = l.w / 2;
-  const gap = 28;
-
+  const ctx = getCtx();
   const mr = modeModalRect(l);
-  const modalW = mr.w;
-  const modalH = mr.h;
+  const cx = l.w / 2;
   const cy = l.h / 2;
+  drawModalBox(cx, cy, mr.w, mr.h);
 
-  drawModalBox(ctx, cx, cy, modalW, modalH);
-
-  let y = cy - modalH / 2 + 36;
+  // Draw title + divider
+  let y = cy - mr.h / 2 + 36;
   drawText(cx, y, '▶  New Game Setup', 22, 'center');
-
-  // Divider
   y += 20;
   ctx.strokeStyle = COLORS.modalBorder;
   ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(cx - modalW/2 + 20, y); ctx.lineTo(cx + modalW/2 - 20, y); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx - mr.w/2 + 20, y); ctx.lineTo(cx + mr.w/2 - 20, y); ctx.stroke();
   y += 20;
 
-  // Variants
-  const activeVariant = modeSettings.variant || 'klondike';
-  drawText(cx, y, 'Game Variant', 13, 'center');
-  y += gap;
-  const valBtnW = 90, valBtnH = 34;
-  const valTotalW = VARIANTS.length * valBtnW + (VARIANTS.length - 1) * 8;
-  let vx = cx - valTotalW / 2;
-  for (const variant of VARIANTS) {
-    const isActive = activeVariant === variant.id;
-    drawModeButton(vx, y, valBtnW, valBtnH, variant.label, isActive);
-    vx += valBtnW + 8;
-  }
-  y += valBtnH + gap;
-
-  if (activeVariant === 'klondike') {
-    // Draw count
-    drawText(cx, y, 'Draw Count', 13, 'center');
-    y += gap;
-    const drawBtnW = 80, drawBtnH = 34;
-    const drawTotalW = DRAW_MODES.length * drawBtnW + (DRAW_MODES.length - 1) * 8;
-    let dx = cx - drawTotalW / 2;
-    for (const mode of DRAW_MODES) {
-      const isActive = modeSettings.drawMode === mode.id;
-      drawModeButton(dx, y, drawBtnW, drawBtnH, mode.label, isActive);
-      dx += drawBtnW + 8;
-    }
-    y += drawBtnH + gap;
-
-    // Deck recycling
-    drawText(cx, y, 'Deck Passes', 13, 'center');
-    y += gap;
-    const recBtnW = 90, recBtnH = 34;
-    const recTotalW = RECYCLE_MODES.length * recBtnW + (RECYCLE_MODES.length - 1) * 8;
-    let rx = cx - recTotalW / 2;
-    for (const mode of RECYCLE_MODES) {
-      const isActive = modeSettings.recycleMode === mode.id;
-      drawModeButton(rx, y, recBtnW, recBtnH, mode.label, isActive);
-      rx += recBtnW + 8;
-    }
-    y += recBtnH + gap;
-  } else if (activeVariant === 'spider') {
-    drawText(cx, y, 'Spider Suits', 13, 'center');
-    y += gap;
-    const suitBtnW = 120, suitBtnH = 34;
-    const suitTotalW = SPIDER_MODES.length * suitBtnW + (SPIDER_MODES.length - 1) * 8;
-    let sx = cx - suitTotalW / 2;
-    for (const mode of SPIDER_MODES) {
-      const isActive = (modeSettings.spiderSuits || '1suit') === mode.id;
-      drawModeButton(sx, y, suitBtnW, suitBtnH, mode.label, isActive);
-      sx += suitBtnW + 8;
-    }
-    y += suitBtnH + gap;
-  }
-
-  // Optional Seed Input
-  drawText(cx, y - 10, 'Seed', 12, 'center');
-  const seedBoxW = 160;
-  const seedBoxH = 30;
-  
-  const seedInputVal = UI.getSeedInputValue();
-  if (seedInputVal !== undefined) {
-    const seedInput = document.getElementById('seed-input'); 
-    if (seedInput) {
-      seedInput.style.left = `${cx - seedBoxW / 2}px`;
-      seedInput.style.top = `${y}px`;
-      if (seedInput.classList.contains('hidden')) {
-        seedInput.classList.remove('hidden');
-        seedInput.value = window._pendingSeed || '';
+  const btns = getModeButtonLayout(l, mr.y + 36 + 20 + 20);
+  for (const btn of btns) {
+    if (btn.type === 'label') {
+      drawText(cx, btn.y + btn.h / 2, btn.text, 13, 'center');
+    } else if (btn.type === 'button') {
+      drawModeButton(btn.x, btn.y, btn.w, btn.h, btn.text, btn.active);
+    } else if (btn.type === 'newgame') {
+      drawButton(btn.x, btn.y, btn.w, btn.h, '▶  New Game', 13);
+    } else if (btn.type === 'seed') {
+      drawText(cx, btn.y - 10, 'Seed', 12, 'center');
+      const seedInput = document.getElementById('seed-input');
+      if (seedInput) {
+        seedInput.style.left = `${btn.x}px`;
+        seedInput.style.top = `${btn.y}px`;
+        if (seedInput.classList.contains('hidden')) {
+          seedInput.classList.remove('hidden');
+          seedInput.value = window._pendingSeed || '';
+        }
       }
     }
   }
+}
+
+/**
+ * Computes all mode overlay button rects in a single pass.
+ * Used by both drawModeOverlay (rendering) and overlayClickHandler (hit testing)
+ * so that their coordinates are guaranteed to stay in sync.
+ *
+ * @param {object} l - layout object from getLayout()
+ * @param {number} startY - top Y coordinate to begin layout from
+ * @returns {Array} array of {type, x, y, w, h, text, active, settingKey, settingValue}
+ */
+function getModeButtonLayout(l, startY) {
+  const cx = l.w / 2;
+  const gap = 28;
+  const btnH = 34;
+  const activeVariant = modeSettings.variant || 'klondike';
+  const mr = modeModalRect(l);
+  let y = startY;
+  const items = [];
+
+  // Variant section
+  const varLabelH = gap;
+  items.push({ type: 'label', text: 'Game Variant', x: cx, y, w: 0, h: varLabelH });
+  y += varLabelH;
+  const valBtnW = 90;
+  const valTotalW = VARIANTS.length * valBtnW + (VARIANTS.length - 1) * 8;
+  let vx = cx - valTotalW / 2;
+  for (const variant of VARIANTS) {
+    items.push({ type: 'button', text: variant.label, x: vx, y, w: valBtnW, h: btnH,
+      active: activeVariant === variant.id,
+      settingKey: 'variant', settingValue: variant.id });
+    vx += valBtnW + 8;
+  }
+  y += btnH + gap;
+
+  if (activeVariant === 'klondike') {
+    // Draw count
+    items.push({ type: 'label', text: 'Draw Count', x: cx, y, w: 0, h: gap });
+    y += gap;
+    const drawBtnW = 80;
+    const drawTotalW = DRAW_MODES.length * drawBtnW + (DRAW_MODES.length - 1) * 8;
+    let dx = cx - drawTotalW / 2;
+    for (const mode of DRAW_MODES) {
+      items.push({ type: 'button', text: mode.label, x: dx, y, w: drawBtnW, h: btnH,
+        active: modeSettings.drawMode === mode.id,
+        settingKey: 'drawMode', settingValue: mode.id });
+      dx += drawBtnW + 8;
+    }
+    y += btnH + gap;
+
+    // Deck passes
+    items.push({ type: 'label', text: 'Deck Passes', x: cx, y, w: 0, h: gap });
+    y += gap;
+    const recBtnW = 90;
+    const recTotalW = RECYCLE_MODES.length * recBtnW + (RECYCLE_MODES.length - 1) * 8;
+    let rx = cx - recTotalW / 2;
+    for (const mode of RECYCLE_MODES) {
+      items.push({ type: 'button', text: mode.label, x: rx, y, w: recBtnW, h: btnH,
+        active: modeSettings.recycleMode === mode.id,
+        settingKey: 'recycleMode', settingValue: mode.id });
+      rx += recBtnW + 8;
+    }
+    y += btnH + gap;
+  } else if (activeVariant === 'spider') {
+    items.push({ type: 'label', text: 'Spider Suits', x: cx, y, w: 0, h: gap });
+    y += gap;
+    const suitBtnW = 120;
+    const suitTotalW = SPIDER_MODES.length * suitBtnW + (SPIDER_MODES.length - 1) * 8;
+    let sx = cx - suitTotalW / 2;
+    for (const mode of SPIDER_MODES) {
+      items.push({ type: 'button', text: mode.label, x: sx, y, w: suitBtnW, h: btnH,
+        active: (modeSettings.spiderSuits || '1suit') === mode.id,
+        settingKey: 'spiderSuits', settingValue: mode.id });
+      sx += suitBtnW + 8;
+    }
+    y += btnH + gap;
+  }
+
+  // Seed input placeholder
+  const seedBoxW = 160, seedBoxH = 30;
+  items.push({ type: 'seed', x: cx - seedBoxW / 2, y, w: seedBoxW, h: seedBoxH });
   y += gap + seedBoxH;
 
-  // New Game button (centered, full width of modal minus padding)
-  const btnW = modalW - 48;
-  drawButton(cx - btnW / 2, y, btnW, 36, '▶  New Game', 13);
+  // New Game button
+  const newBtnW = mr.w - 48;
+  items.push({ type: 'newgame', x: cx - newBtnW / 2, y, w: newBtnW, h: 36 });
+
+  return items;
 }
 
 function drawModeButton(x, y, w, h, text, active) {
-  const ctx = canvas.getContext('2d');
+  const ctx = getCtx();
   const r = 6;
   ctx.beginPath();
   ctx.moveTo(x + r, y);
@@ -795,11 +826,6 @@ function overlayClickHandler(e) {
 
   if (showModeSelect) {
     const mr = modeModalRect(l);
-    const cx = l.w / 2;
-    const gap = 28;
-    const drawBtnW = 80, drawBtnH = 34;
-    const recBtnW = 90, recBtnH = 34;
-    const modalW = mr.w;
 
     if (!inRect(x, y, mr.x, mr.y, mr.w, mr.h)) {
       showModeSelect = false;
@@ -809,103 +835,28 @@ function overlayClickHandler(e) {
       return;
     }
 
-    let my = mr.y + 36 + 20 + 20; // title + divider area + gap
+    // Use the shared button layout — guaranteed to match what was drawn
+    const btns = getModeButtonLayout(l, mr.y + 36 + 20 + 20);
+    for (const btn of btns) {
+      if (btn.type !== 'button' && btn.type !== 'newgame') continue;
+      if (!inRect(x, y, btn.x, btn.y, btn.w, btn.h)) continue;
 
-    // Variant buttons
-    my += gap; // "Game Variant" label
-    const valBtnW = 90, valBtnH = 34;
-    const valTotalW = VARIANTS.length * valBtnW + (VARIANTS.length - 1) * 8;
-    let vx = cx - valTotalW / 2;
-    for (const variant of VARIANTS) {
-      if (inRect(x, y, vx, my, valBtnW, valBtnH)) {
-        modeSettings.variant = variant.id;
-        saveModeSettings(modeSettings);
+      if (btn.type === 'newgame') {
+        showModeSelect = false;
+        UI.hideSeedInput();
+        const explicitSeed = parseSeed(UI.getSeedInputValue());
+        newGame(true, explicitSeed);
+        UI.clearSeedInput();
+        window._pendingSeed = '';
+        stats = loadStats(getGameTypeKey());
         markDirty();
         e.stopPropagation();
         return;
       }
-      vx += valBtnW + 8;
-    }
-    my += valBtnH + gap;
 
-    const activeVariant = modeSettings.variant || 'klondike';
-    
-    if (activeVariant === 'klondike') {
-      const drawBtnW = 80, drawBtnH = 34;
-      const recBtnW = 90, recBtnH = 34;
-
-      // Draw mode buttons
-      my += gap; // "Draw Count" label
-      const drawTotalW = DRAW_MODES.length * drawBtnW + (DRAW_MODES.length - 1) * 8;
-      let dx = cx - drawTotalW / 2;
-      for (const mode of DRAW_MODES) {
-        if (inRect(x, y, dx, my, drawBtnW, drawBtnH)) {
-          modeSettings.drawMode = mode.id;
-          saveModeSettings(modeSettings);
-          markDirty();
-          e.stopPropagation();
-          return;
-        }
-        dx += drawBtnW + 8;
-      }
-      my += drawBtnH + gap;
-
-      // Recycle mode buttons
-      my += gap; // "Deck Passes" label
-      const recTotalW = RECYCLE_MODES.length * recBtnW + (RECYCLE_MODES.length - 1) * 8;
-      let rx = cx - recTotalW / 2;
-      for (const mode of RECYCLE_MODES) {
-        if (inRect(x, y, rx, my, recBtnW, recBtnH)) {
-          modeSettings.recycleMode = mode.id;
-          saveModeSettings(modeSettings);
-          markDirty();
-          e.stopPropagation();
-          return;
-        }
-        rx += recBtnW + 8;
-      }
-      my += recBtnH + gap;
-    } else if (activeVariant === 'spider') {
-      const suitBtnW = 120, suitBtnH = 34;
-      my += gap; // "Spider Suits" label
-      const suitTotalW = SPIDER_MODES.length * suitBtnW + (SPIDER_MODES.length - 1) * 8;
-      let sx = cx - suitTotalW / 2;
-      for (const mode of SPIDER_MODES) {
-        if (inRect(x, y, sx, my, suitBtnW, suitBtnH)) {
-          modeSettings.spiderSuits = mode.id;
-          saveModeSettings(modeSettings);
-          markDirty();
-          e.stopPropagation();
-          return;
-        }
-        sx += suitBtnW + 8;
-      }
-      my += suitBtnH + gap;
-    }
-
-    // Seed Box
-    const seedBoxH = 30;
-    my += gap + seedBoxH;
-
-    // New Game button
-    const btnW = modalW - 48;
-    if (inRect(x, y, cx - btnW / 2, my, btnW, 36)) {
-      console.log('New Game button clicked', { variant: modeSettings.variant, my });
-      showModeSelect = false;
-      UI.hideSeedInput();
-      
-      const seedInputVal = UI.getSeedInputValue();
-      let explicitSeed = seedInputVal ? parseInt(seedInputVal, 10) : undefined;
-      if (explicitSeed !== undefined) {
-        if (isNaN(explicitSeed)) explicitSeed = undefined;
-        else explicitSeed = Math.max(1, Math.min(999999, explicitSeed));
-      }
-      
-      newGame(true, explicitSeed);
-      UI.clearSeedInput();
-      window._pendingSeed = ""; 
-      
-      stats = loadStats(getGameTypeKey());
+      // Setting button — update the relevant setting key
+      modeSettings[btn.settingKey] = btn.settingValue;
+      saveModeSettings(modeSettings);
       markDirty();
       e.stopPropagation();
       return;
@@ -924,8 +875,6 @@ function overlayClickHandler(e) {
   }
 }
 
-function inRect(px, py, rx, ry, rw, rh) {
-  return px >= rx && px <= rx + rw && py >= ry && py <= ry + rh;
-}
+
 
 init();

@@ -1,7 +1,9 @@
 // klondike.js — Game Rules and Configuration for Klondike Solitaire
 import { Zone } from '../zone.js';
+import { BaseRules } from './base.js';
 
 export const KlondikeRules = {
+  ...BaseRules,
   config: { layoutCols: 7, layoutRows: 3 },
   helpHTML: `
     <p><strong>Goal</strong>: Build all four suits from Ace to King on the <strong>Foundations</strong>.</p>

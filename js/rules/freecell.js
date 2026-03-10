@@ -1,6 +1,8 @@
 import { Zone } from '../zone.js';
+import { BaseRules } from './base.js';
 
 export const FreeCellRules = {
+  ...BaseRules,
   config: { layoutCols: 8, layoutRows: 3 },
   helpHTML: `
     <p><strong>Goal</strong>: Build all four suits from Ace to King on the <strong>Foundations</strong>.</p>
