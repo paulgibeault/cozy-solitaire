@@ -65,6 +65,19 @@ function init() {
       if (opening) overlayJustOpened = true;
       markDirty();
     },
+    onToggleCollapse: () => {
+      modeSettings.collapseRuns = !modeSettings.collapseRuns;
+      saveModeSettings(modeSettings);
+      UI.updateToggles(modeSettings.collapseRuns, modeSettings.showHints);
+      recalcLayout();
+      markDirty();
+    },
+    onToggleHints: () => {
+      modeSettings.showHints = !modeSettings.showHints;
+      saveModeSettings(modeSettings);
+      UI.updateToggles(modeSettings.collapseRuns, modeSettings.showHints);
+      markDirty();
+    },
     onShowHelp: () => {
       import('./game.js').then(({ GameRules }) => {
          const variant = modeSettings.variant || 'klondike';
@@ -109,6 +122,7 @@ function init() {
   }
 
   updateSeedDisplay();
+  UI.updateToggles(modeSettings.collapseRuns, modeSettings.showHints);
   window.__gameState = state;
   recalcLayout();
   scheduleFrame();
@@ -400,8 +414,8 @@ function render(dt) {
                     drawCardFace(cPos.x, cPos.y, card, 0.9);
                 }
                 
-                if (cPos.squashFactor < 0.8 && i < zone.cards.length - 1) {
-                    drawSquashedLabel(cPos.x, cPos.y, card);
+                if (cPos.squashFactor < 1) {
+                    drawSquashedLabel(cPos.x, cPos.y, card, state, zoneId, i);
                 }
             } else {
                 drawCardBack(cPos.x, cPos.y);
@@ -411,7 +425,8 @@ function render(dt) {
   }
 
   // Drop zone highlights during drag
-  if (drag && drag.dragging) {
+  const modeSettings = loadModeSettings();
+  if (drag && drag.dragging && modeSettings.showHints) {
     const card = getCardFromHit(drag);
     if (card) {
        const rules = GameRules[state.variant] || GameRules['klondike'];
@@ -439,8 +454,8 @@ function render(dt) {
        for (let i = drag.cardIndex; i < zone.cards.length; i++) {
            const pos = getCardPosition(state, drag.sourceZoneId, i);
            drawCardFace(pos.x + offsetX, pos.y + offsetY, zone.cards[i]);
-           if (pos.squashFactor < 0.8 && i < zone.cards.length - 1) {
-               drawSquashedLabel(pos.x + offsetX, pos.y + offsetY, zone.cards[i]);
+           if (pos.squashFactor < 1) {
+               drawSquashedLabel(pos.x + offsetX, pos.y + offsetY, zone.cards[i], state, drag.sourceZoneId, i);
            }
        }
     }

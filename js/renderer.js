@@ -2,6 +2,7 @@ import { COLORS, SUIT_COLORS, CARD_ASPECT, CARD_RADIUS_RATIO, CARD_OVERLAP_FACED
   PILE_GAP_RATIO, TOP_MARGIN_RATIO, FONT_RATIO, SUIT_FONT_RATIO, CENTER_SUIT_RATIO, OVERLAP_RATIO,
   TABLEAU_COLS, FOUNDATION_COUNT, MAX_CARD_W, MAX_CARD_W_PORTRAIT } from './constants.js';
 import { GameRules } from './game.js';
+import { loadModeSettings } from './storage.js';
 
 let canvas, ctx;
 let layout = {};
@@ -178,7 +179,7 @@ export function recalcLayout() {
   let cardH = cardW * CARD_ASPECT;
 
   const overlapDown = cardH * OVERLAP_RATIO;
-  const overlapRight = cardW * 0.35;
+  const overlapRight = cardW * 0.20;
 
   let totalW = (cols * cardW) + ((cols - 1) * 10);
   let startX = (w - totalW) / 2;
@@ -209,6 +210,80 @@ export function recalcLayout() {
         let y = topMargin + (gy * rowSpacing);
 
         layout.zones.set(id, { x, y });
+    }
+
+    // Pre-calculate global top-alignment shift for tableau columns
+    layout.globalRootYOffset = 0;
+    const rules = window.__gameState.variant ? (GameRules[window.__gameState.variant] || GameRules['klondike']) : null;
+    const bottomPadding = 16;
+    const runCollapseHeight = 16;
+    const minVisibleHeight = layout.fontSize + layout.suitSize + 8;
+
+    for (const [id, zone] of window.__gameState.zones.entries()) {
+        if (zone.type === 'fanDown' && zone.cards.length > 1) {
+            const pos = layout.zones.get(id);
+            const maxOffset = layout.h - pos.y - layout.cardH - bottomPadding;
+            
+            // 1. Calculate squash factor for this column
+            let totalUnsquashed = 0;
+            for (let i = 0; i < zone.cards.length - 1; i++) {
+                const c1 = zone.cards[i];
+                const c2 = zone.cards[i+1];
+                if (!c1.faceUp) {
+                    totalUnsquashed += layout.cardH * CARD_OVERLAP_FACEDOWN;
+                } else if (rules && rules.isValidRunLink && rules.isValidRunLink(c1, c2)) {
+                    totalUnsquashed += layout.cardH * CARD_OVERLAP_FACEUP;
+                } else {
+                    totalUnsquashed += layout.overlapDown;
+                }
+            }
+            
+            let squashFactor = 1;
+            if (totalUnsquashed > maxOffset) {
+                squashFactor = maxOffset > 0 ? maxOffset / totalUnsquashed : 0.01;
+            }
+
+            // 2. Calculate actual height with runs collapsed and minimum visibility applied
+            let rawTotalHeight = 0;
+            for (let i = 0; i < zone.cards.length - 1; i++) {
+                const c1 = zone.cards[i];
+                const c2 = zone.cards[i+1];
+                let offset = layout.overlapDown;
+                let isRun = false;
+                
+                if (!c1.faceUp) {
+                    offset = layout.cardH * CARD_OVERLAP_FACEDOWN;
+                } else {
+                    if (c2 && rules && rules.isValidRunLink && rules.isValidRunLink(c1, c2)) {
+                        offset = layout.cardH * CARD_OVERLAP_FACEUP;
+                        isRun = true;
+                    }
+                }
+                
+                let squashedOffset = offset * squashFactor;
+                const modeSettings = loadModeSettings();
+                if (c1.faceUp && squashedOffset < minVisibleHeight && squashFactor < 1) {
+                    if (isRun && modeSettings.collapseRuns) {
+                        squashedOffset = 0;
+                    } else {
+                        squashedOffset = Math.min(offset, minVisibleHeight);
+                    }
+                }
+                rawTotalHeight += squashedOffset;
+            }
+            
+            // 3. See if this column needs an upward push
+            if (maxOffset > 0 && rawTotalHeight > maxOffset) {
+                let requiredPush = maxOffset - rawTotalHeight;
+                const maxUpwardPush = -(pos.y - layout.cardH / 2);
+                if (requiredPush < maxUpwardPush) requiredPush = maxUpwardPush;
+                
+                // Track the maximum negative push (most negative number) required across all columns
+                if (requiredPush < layout.globalRootYOffset) {
+                    layout.globalRootYOffset = requiredPush;
+                }
+            }
+        }
     }
   }
 
@@ -442,42 +517,46 @@ export function updateAndDrawParticles(dt) {
   return particles.length > 0;
 }
 
-export function drawSquashedLabel(x, y, card) {
+export function drawSquashedLabel(x, y, card, state, zoneId, cardIndex) {
   const { cardW } = layout;
   ctx.save();
 
-  const str = `${card.value}${card.suit}`;
-  ctx.font = 'bold 13px Georgia, serif';
-  const tw = ctx.measureText(str).width;
+  let displayCard = card;
+  let isSuperCollapsedGroup = false;
+  
+  // If this card is the bottom of a super-collapsed run, find the top card of that run
+  if (state && zoneId && cardIndex !== undefined) {
+      const zone = state.zones.get(zoneId);
+      if (zone) {
+          // Look backwards to see how far the super-collapsed run goes
+          let topRunIndex = cardIndex;
+          while (topRunIndex > 0 && zone.cards[topRunIndex - 1]._superCollapsed) {
+              topRunIndex--;
+              isSuperCollapsedGroup = true;
+          }
+          if (topRunIndex < cardIndex) {
+              displayCard = zone.cards[topRunIndex];
+          } else if (card._superCollapsed) {
+              isSuperCollapsedGroup = true;
+          }
+      }
+  }
 
-  const bx = x + cardW - tw - 12; // top right
-  const by = y + 4;
-  const bw = tw + 8;
-  const bh = 18;
-  const r = 4;
+  // Only draw the squashed label if we are actually compressing a run to 0-height
+  if (!isSuperCollapsedGroup) {
+      ctx.restore();
+      return;
+  }
 
-  ctx.beginPath();
-  ctx.moveTo(bx + r, by);
-  ctx.lineTo(bx + bw - r, by);
-  ctx.quadraticCurveTo(bx + bw, by, bx + bw, by + r);
-  ctx.lineTo(bx + bw, by + bh - r);
-  ctx.quadraticCurveTo(bx + bw, by + bh, bx + bw - r, by + bh);
-  ctx.lineTo(bx + r, by + bh);
-  ctx.quadraticCurveTo(bx, by + bh, bx, by + bh - r);
-  ctx.lineTo(bx, by + r);
-  ctx.quadraticCurveTo(bx, by, bx + r, by);
-  ctx.closePath();
+  const str = `${displayCard.value}${displayCard.suit}`;
+  ctx.font = 'bold 10px Georgia, serif';
 
-  ctx.fillStyle = COLORS.cardFace;
-  ctx.fill();
-  ctx.strokeStyle = COLORS.cardBorder;
-  ctx.lineWidth = 1;
-  ctx.stroke();
-
-  ctx.fillStyle = card.color === 'red' ? COLORS.red : COLORS.black;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(str, bx + bw / 2, by + bh / 2 + 1);
+  ctx.fillStyle = displayCard.color === 'red' ? COLORS.red : COLORS.black;
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'top';
+  
+  // Draw tightly in the top right corner
+  ctx.fillText(str, x + cardW - 3, y + 3);
 
   ctx.restore();
 }
@@ -496,6 +575,10 @@ export function getCardPosition(state, sourceZoneId, cardIndex) {
   let squashFactor = 1;
   const rules = GameRules && state.variant ? (GameRules[state.variant] || GameRules['klondike']) : null;
 
+  // We need CARD_OVERLAP_FACEDOWN and CARD_OVERLAP_FACEUP. They are globally imported as CARD_OVERLAP_FACEDOWN and CARD_OVERLAP_FACEUP at the top of the file.
+  // Wait, I can't access them directly if they aren't on `layout`. But they are imported at the top!
+  // Let's check imports: import { ..., CARD_OVERLAP_FACEDOWN, CARD_OVERLAP_FACEUP, ... } from './constants.js';
+
   if (zone.type === 'fanDown' && zone.cards.length > 1) {
     const bottomPadding = 16;
     const maxOffset = l.h - pos.y - l.cardH - bottomPadding;
@@ -505,39 +588,87 @@ export function getCardPosition(state, sourceZoneId, cardIndex) {
         const c1 = zone.cards[i];
         const c2 = zone.cards[i+1];
         if (!c1.faceUp) {
-            totalOffset += l.overlapDown * 0.15;
+            totalOffset += l.cardH * CARD_OVERLAP_FACEDOWN;
         } else if (rules && rules.isValidRunLink && rules.isValidRunLink(c1, c2)) {
-            totalOffset += l.overlapDown * 0.25;
+            totalOffset += l.cardH * CARD_OVERLAP_FACEUP;
         } else {
             totalOffset += l.overlapDown;
         }
     }
     
-    if (totalOffset > maxOffset && maxOffset > 0) {
-        squashFactor = maxOffset / totalOffset;
+    if (totalOffset > maxOffset) {
+        // If maxOffset is 0 or negative, we have absolutely no space, squish extremely hard
+        squashFactor = maxOffset > 0 ? maxOffset / totalOffset : 0.01;
     }
   }
 
-  // Add offsets based on type for cards prior to this index
-  for (let i = 0; i < cardIndex; i++) {
+  // Minimum required height to not cover up number and suit
+  const minVisibleHeight = l.fontSize + l.suitSize + 8;
+  const runCollapseHeight = 16; // Very tight spacing for runs when squished
+
+  // Calculate intended offsets for *all* cards first
+  const offsets = new Array(zone.cards.length).fill(0);
+
+  for (let i = 0; i < zone.cards.length - 1; i++) {
      const c1 = zone.cards[i];
+     const c2 = zone.cards[i+1];
      if (zone.type === 'fanDown') {
          let offset = l.overlapDown;
+         let isRun = false;
+         
          if (!c1.faceUp) {
-             offset = l.overlapDown * 0.15;
+             offset = l.cardH * CARD_OVERLAP_FACEDOWN;
          } else {
-             const c2 = zone.cards[i+1];
              if (c2 && rules && rules.isValidRunLink && rules.isValidRunLink(c1, c2)) {
-                 offset = l.overlapDown * 0.25;
+                 offset = l.cardH * CARD_OVERLAP_FACEUP;
+                 isRun = true;
              }
          }
-         dy += offset * squashFactor;
+         
+         let squashedOffset = offset * squashFactor;
+
+         c1._superCollapsed = false;
+         const modeSettings = loadModeSettings();
+         if (c1.faceUp && squashedOffset < minVisibleHeight && squashFactor < 1) {
+             if (isRun && modeSettings.collapseRuns) {
+                 squashedOffset = 0;
+                 c1._superCollapsed = true;
+             } else {
+                 squashedOffset = Math.min(offset, minVisibleHeight);
+             }
+         }
+         
+         offsets[i] = squashedOffset;
+     }
+  }
+
+  // Use the global root Y offset calculated in recalcLayout to keep all columns aligned
+  dy += l.globalRootYOffset || 0;
+
+  // Add offsets based on type for cards prior to this index
+  for (let i = 0; i < cardIndex; i++) {
+     if (zone.type === 'fanDown') {
+         dy += offsets[i];
      } else if (zone.type === 'fanRightLimited') {
          const cardsToShow = state.drawCount;
          if (i >= zone.cards.length - cardsToShow) {
              dx += l.overlapRight;
          }
      }
+  }
+
+  if (zone.type === 'fanRight') {
+    dx = pos.x + cardIndex * l.overlapRight;
+  } else if (zone.type === 'fanRightLimited') {
+    const cardsToShow = state.drawCount || 1;
+    const startIdx = Math.max(0, zone.cards.length - cardsToShow);
+    if (cardIndex < startIdx) {
+        dx = pos.x;
+        dy = pos.y;
+    } else {
+        dx = pos.x + (cardIndex - startIdx) * l.overlapRight;
+    }
+    return { x: dx, y: dy, squashFactor: 1 };
   }
 
   return { x: dx, y: dy, squashFactor };
@@ -570,6 +701,8 @@ export function drawPeekOverlay(zoneId, state, drag) {
   for (let i = 0; i < zone.cards.length; i++) {
      const card = zone.cards[i];
      
+     if (!card.faceUp) continue; // Skip rendering face-down cards
+
      // Store absolute coordinates for hit-testing before drawing to get correct Y
      // The entire context is translated by offsetX/offsetY and scaled.
      l.peekCards.push({
@@ -589,13 +722,8 @@ export function drawPeekOverlay(zoneId, state, drag) {
          dragOffsetY = visualDy / scale;
      }
 
-     if (card.faceUp) {
-         drawCardFace(dragOffsetX, yOffset + dragOffsetY, card);
-         yOffset += l.overlapDown; // Full spacing always in peek view
-     } else {
-         drawCardBack(dragOffsetX, yOffset + dragOffsetY);
-         yOffset += l.overlapDown * 0.15;
-     }
+     drawCardFace(dragOffsetX, yOffset + dragOffsetY, card);
+     yOffset += l.overlapDown; // Full spacing always in peek view
   }
 
   // Adjust recorded heights so hitboxes don't overlap previous cards incorrectly

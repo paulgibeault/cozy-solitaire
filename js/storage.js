@@ -15,6 +15,8 @@ const defaultMode = {
   variant: 'klondike',
   drawMode: 'draw1',
   recycleMode: 'unlimited',
+  collapseRuns: true,
+  showHints: true,
 };
 
 // Stats are stored as a keyed object: { [gameTypeKey]: { gamesPlayed, ... }, ... }

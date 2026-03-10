@@ -12,6 +12,10 @@ export const UI = {
       btnRestart: document.getElementById('btn-restart'),
       btnMode: document.getElementById('btn-mode'),
       btnStats: document.getElementById('btn-stats'),
+      btnToggleCollapse: document.getElementById('btn-toggle-collapse'),
+      btnToggleHints: document.getElementById('btn-toggle-hints'),
+      iconCollapse: document.getElementById('icon-collapse'),
+      iconHints: document.getElementById('icon-hints'),
       undoBtn: document.getElementById('btn-undo-floating'),
       undoMenu: document.getElementById('undo-menu'),
       undoList: document.getElementById('undo-list'),
@@ -60,6 +64,16 @@ export const UI = {
     this.elements.btnStats?.addEventListener('click', () => {
       this.closeDropdown();
       this.handlers.onToggleStats();
+    });
+
+    this.elements.btnToggleCollapse?.addEventListener('click', () => {
+      this.closeDropdown();
+      this.handlers.onToggleCollapse();
+    });
+
+    this.elements.btnToggleHints?.addEventListener('click', () => {
+      this.closeDropdown();
+      this.handlers.onToggleHints();
     });
 
     this.elements.btnHelp?.addEventListener('click', () => {
@@ -180,6 +194,15 @@ export const UI = {
 
   hideSeedInput() {
     this.elements.seedInput?.classList.add('hidden');
+  },
+
+  updateToggles(collapseRuns, showHints) {
+    if (this.elements.iconCollapse) {
+        this.elements.iconCollapse.innerText = collapseRuns ? '✓' : ' ';
+    }
+    if (this.elements.iconHints) {
+        this.elements.iconHints.innerText = showHints ? '✓' : ' ';
+    }
   },
 
   getSeedInputValue() {

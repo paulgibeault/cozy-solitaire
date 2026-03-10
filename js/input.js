@@ -256,6 +256,10 @@ function hitTest(x, y) {
           }
 
           if (inRect(x, y, cardPos.x, cardPos.y, l.cardW, h)) {
+               // Face down cards shouldn't have a touch target, unless they are in the stock
+               if (!zone.cards[i].faceUp && zoneId !== 'stock') {
+                   return null; 
+               }
                return { sourceZoneId: zoneId, cardIndex: i };
           }
       }
