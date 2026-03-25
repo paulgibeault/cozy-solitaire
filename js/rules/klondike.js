@@ -143,7 +143,7 @@ export const KlondikeRules = {
     const waste = zones.get('waste');
     if (!waste.isEmpty()) {
       const card = waste.getTopCard();
-      const fi = this.findFoundationFor(card, zones);
+      const fi = this.findFoundationFor(card, state);
       if (fi && card.order <= minFound + 2) {
         return { sourceZoneId: 'waste', card, targetZoneId: fi };
       }
@@ -153,7 +153,7 @@ export const KlondikeRules = {
       if (col.isEmpty()) continue;
       const card = col.getTopCard();
       if (!card.faceUp) continue;
-      const fi = this.findFoundationFor(card, zones);
+      const fi = this.findFoundationFor(card, state);
       if (fi && card.order <= minFound + 2) {
         return { sourceZoneId: col.id, cardIndex: col.cards.length - 1, card, targetZoneId: fi };
       }

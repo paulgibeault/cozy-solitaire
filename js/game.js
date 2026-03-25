@@ -223,7 +223,7 @@ export function serializeState(state) {
     elapsed: state.elapsed,
     startTime: state.startTime,
     drawCount: state.drawCount,
-    maxPasses: state.maxPasses,
+    maxPasses: state.maxPasses === Infinity ? 'Infinity' : state.maxPasses,
     stockPasses: state.stockPasses,
     encodedInitialZones: initialSerialized,
     seed: state.seed,
@@ -271,7 +271,7 @@ export function deserializeState(data) {
   return {
     zones,
     drawCount: data.drawCount || 1,
-    maxPasses: data.maxPasses ?? Infinity,
+    maxPasses: (data.maxPasses == null || data.maxPasses === 'Infinity') ? Infinity : data.maxPasses,
     stockPasses: data.stockPasses || 0,
     won: data.won || false,
     history: [],
