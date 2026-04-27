@@ -14,6 +14,12 @@ import { TABLEAU_COLS, FOUNDATION_COUNT, AUTO_COMPLETE_DELAY, COLORS,
 import { UI } from './ui.js';
 import { inRect, parseSeed } from './utils.js';
 
+// In sandboxed-iframe context (launcher), wait for postMessage-backed
+// localStorage to hydrate before any save data is read.
+if (typeof window !== 'undefined' && window.__storageReady) {
+  await window.__storageReady;
+}
+
 const canvas = document.getElementById('game');
 let state = null;
 
