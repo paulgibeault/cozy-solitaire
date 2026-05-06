@@ -8,6 +8,13 @@ import { GameRules } from './game.js';
 let _collapseRuns = true;
 export function setCollapseRuns(val) { _collapseRuns = val; }
 
+// Read launcher-controlled font scale; multiplies absolute-px text sites
+// (modal labels, button text, run-label badges). Card-face text and the
+// empty-pile glyph stay proportional to card width by design.
+function fontScale() {
+  return (typeof Arcade !== 'undefined' && Arcade.settings) ? Arcade.settings.fontScale() : 1;
+}
+
 let canvas, ctx;
 let layout = {};
 let lastCacheKey = '';
@@ -483,9 +490,9 @@ export function drawButton(x, y, w, h, text, fontSize = 14) {
   ctx.strokeStyle = COLORS.buttonBorder;
   ctx.lineWidth = 1;
   ctx.stroke();
-  
+
   ctx.fillStyle = COLORS.buttonText;
-  ctx.font = `bold ${fontSize}px Georgia, serif`;
+  ctx.font = `bold ${fontSize * fontScale()}px Georgia, serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(text, x + w / 2, y + h / 2 + 1);
@@ -493,7 +500,7 @@ export function drawButton(x, y, w, h, text, fontSize = 14) {
 
 export function drawText(x, y, text, size = 14, align = 'left') {
   ctx.fillStyle = COLORS.text;
-  ctx.font = `${size}px Georgia, serif`;
+  ctx.font = `${size * fontScale()}px Georgia, serif`;
   ctx.textAlign = align;
   ctx.textBaseline = 'middle';
   ctx.fillText(text, x, y);
@@ -505,6 +512,11 @@ const particles = [];
 export function spawnWinParticles() {
   // Remove any leftover particles from a previous win animation
   particles.length = 0;
+  // Honor the launcher's reduced-motion preference — skip the celebratory
+  // burst entirely, the win text overlay is enough to confirm the state.
+  if (typeof Arcade !== 'undefined' && Arcade.settings && Arcade.settings.reducedMotion()) {
+    return;
+  }
   const colors = [COLORS.winParticle1, COLORS.winParticle2, COLORS.winParticle3];
   for (let i = 0; i < 80; i++) {
     particles.push({
@@ -564,7 +576,7 @@ export function drawSquashedLabel(x, y, card, state, zoneId, cardIndex) {
   }
 
   const str = `${displayCard.value}${displayCard.suit}`;
-  ctx.font = 'bold 10px Georgia, serif';
+  ctx.font = `bold ${10 * fontScale()}px Georgia, serif`;
   ctx.fillStyle = displayCard.color === 'red' ? COLORS.red : COLORS.black;
   ctx.textAlign = 'right';
   ctx.textBaseline = 'top';

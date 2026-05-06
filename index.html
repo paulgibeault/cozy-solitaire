@@ -1,48 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <script>
-  // Sandboxed-iframe localStorage shim. When loaded inside the launcher's
-  // sandboxed iframe (no allow-same-origin), parent's localStorage is
-  // unreachable directly — proxy via postMessage to the launcher's
-  // gameStorageProxy IIFE. Standalone (window.parent === window): no-op.
-  (function () {
-    if (window.parent === window) return;
-    var cache = Object.create(null);
-    var pending = Object.create(null);
-    var nextId = 0;
-    function send(op, payload) {
-      var requestId = String(++nextId);
-      var p = new Promise(function (resolve) { pending[requestId] = resolve; });
-      window.parent.postMessage(
-        Object.assign({ type: 'ls-proxy-request', requestId: requestId, op: op }, payload || {}),
-        '*'
-      );
-      return p;
-    }
-    window.addEventListener('message', function (e) {
-      if (e.source !== window.parent) return;
-      var d = e.data;
-      if (!d || d.type !== 'ls-proxy-response') return;
-      var resolver = pending[d.requestId];
-      if (resolver) { delete pending[d.requestId]; resolver(d); }
-    });
-    var shim = {
-      getItem: function (k) { return Object.prototype.hasOwnProperty.call(cache, k) ? cache[k] : null; },
-      setItem: function (k, v) { var s = String(v); cache[k] = s; send('setItem', { key: k, value: s }); },
-      removeItem: function (k) { delete cache[k]; send('removeItem', { key: k }); },
-      clear: function () { cache = Object.create(null); send('clear'); },
-      key: function (i) { return Object.keys(cache)[i] || null; },
-      get length() { return Object.keys(cache).length; }
-    };
-    Object.defineProperty(window, 'localStorage', { value: shim, configurable: true });
-    window.__storageReady = send('dump').then(function (reply) {
-      if (reply && reply.ok && reply.data) {
-        Object.keys(reply.data).forEach(function (k) { cache[k] = reply.data[k]; });
-      }
-    });
-  })();
-  </script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -55,6 +13,32 @@
   <link rel="apple-touch-icon" href="icon.svg">
   <link rel="stylesheet" href="css/style.css">
   <title>Cozy Solitaire</title>
+  <script src="/arcade-sdk.js"></script>
+  <script>
+    Arcade.init({ gameId: 'cozy-solitaire' });
+
+    // One-shot migration of pre-Arcade keys into the namespaced layout.
+    Arcade.state.migrate('v1', function () {
+      function takeRaw(key) {
+        var raw;
+        try { raw = localStorage.getItem(key); } catch (e) { return null; }
+        if (raw === null) return null;
+        try { localStorage.removeItem(key); } catch (e) {}
+        return raw;
+      }
+      function takeJSON(key) {
+        var raw = takeRaw(key);
+        if (raw === null) return null;
+        try { return JSON.parse(raw); } catch (e) { return null; }
+      }
+      var stats = takeJSON('cozy-solitaire-stats');
+      if (stats) Arcade.state.set('stats', stats);
+      var saved = takeJSON('cozy-solitaire-state');
+      if (saved) Arcade.state.set('currentGame', saved);
+      var mode = takeJSON('cozy-solitaire-mode');
+      if (mode) Arcade.state.set('settings', mode);
+    });
+  </script>
 </head>
 <body>
   <!-- UI Layer on top of canvas -->
@@ -69,7 +53,7 @@
         </h1>
       </div>
       <div id="header-stats" style="display: flex; align-items: center; gap: 12px;">
-        <button id="btn-help" style="background: none; border: none; cursor: pointer; font-size: 16px; opacity: 0.8; transition: opacity 0.2s; pointer-events: auto;" title="How to Play" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.8'">💡</button>
+        <button id="btn-help" style="background: none; border: none; cursor: pointer; font-size: 1rem; opacity: 0.8; transition: opacity 0.2s; pointer-events: auto;" title="How to Play" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.8'">💡</button>
         <div>
           ♣ <span id="time-display">0:00</span>  ·  <span id="moves-display">0</span> moves
         </div>

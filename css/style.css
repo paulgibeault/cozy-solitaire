@@ -61,7 +61,7 @@ canvas {
 
 #app-title {
   font-family: Georgia, serif;
-  font-size: 18px;
+  font-size: 1.125rem;
   font-weight: bold;
   color: #ede2c8;
   display: flex;
@@ -78,14 +78,14 @@ canvas {
 }
 
 .dropdown-caret {
-  font-size: 10px;
+  font-size: 0.625rem;
   opacity: 0.7;
   transition: transform 0.2s;
 }
 
 #header-stats {
   font-family: Georgia, serif;
-  font-size: 15px;
+  font-size: 0.9375rem;
   color: #c0a870;
 }
 
@@ -124,7 +124,7 @@ canvas {
 
 .dropdown-header {
   font-family: Georgia, serif;
-  font-size: 11px;
+  font-size: 0.6875rem;
   letter-spacing: 1.5px;
   color: #c0a870;
   text-transform: uppercase;
@@ -145,7 +145,7 @@ canvas {
   border-radius: 6px;
   color: #ede2c8;
   font-family: Georgia, serif;
-  font-size: 14px;
+  font-size: 0.875rem;
   font-weight: bold;
   text-align: left;
   cursor: pointer;
@@ -156,7 +156,7 @@ canvas {
 
 .dropdown-btn .icon {
   margin-right: 12px;
-  font-size: 16px;
+  font-size: 1rem;
   opacity: 0.8;
   width: 24px;
   text-align: center;
@@ -175,15 +175,22 @@ canvas {
 }
 
 /* ─── Floating Undo UI ────────────────────────────────────────── */
+/* Default (right-handed): button anchored to the right edge so the
+   primary thumb can reach it. [data-handedness="left"] flips to left. */
 #undo-wrapper {
   position: absolute;
   bottom: 16px;
-  left: 16px;
+  right: 16px;
   z-index: 500;
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: flex-end;
   pointer-events: none;
+}
+html[data-handedness="left"] #undo-wrapper {
+  right: auto;
+  left: 16px;
+  align-items: flex-start;
 }
 
 .floating-btn {
@@ -195,7 +202,7 @@ canvas {
   color: #ede2c8;
   width: 50px;
   height: 50px;
-  font-size: 24px;
+  font-size: 1.5rem;
   display: flex;
   justify-content: center;
   align-items: center;
@@ -213,7 +220,7 @@ canvas {
 .undo-dropdown {
   position: absolute;
   bottom: 60px; /* Above the button */
-  left: 0;
+  right: 0;
   background: rgba(30, 41, 33, 0.95);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
@@ -226,10 +233,15 @@ canvas {
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6), 0 0 15px rgba(138, 112, 80, 0.2);
   opacity: 1;
   transform: translateY(0);
-  transition: opacity 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275), 
+  transition: opacity 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275),
               transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-  transform-origin: bottom left;
+  transform-origin: bottom right;
   pointer-events: auto;
+}
+html[data-handedness="left"] .undo-dropdown {
+  right: auto;
+  left: 0;
+  transform-origin: bottom left;
 }
 
 .undo-dropdown.hidden {
@@ -258,7 +270,7 @@ canvas {
   bottom: 24px;
   right: 24px;
   font-family: monospace;
-  font-size: 11px;
+  font-size: 0.6875rem;
   color: rgba(192, 168, 112, 0.6);
   pointer-events: none;
   z-index: 10;
@@ -276,7 +288,7 @@ canvas {
   border-radius: 6px;
   color: #ede2c8;
   font-family: Georgia, serif;
-  font-size: 13px;
+  font-size: 0.8125rem;
   text-align: center;
   outline: none;
   pointer-events: auto;
@@ -333,7 +345,7 @@ canvas {
 
 #help-title {
   color: #c0a870;
-  font-size: 20px;
+  font-size: 1.25rem;
   border-bottom: 1px solid rgba(192, 168, 112, 0.4);
   padding-bottom: 10px;
   margin-bottom: 15px;
@@ -342,7 +354,7 @@ canvas {
 }
 
 #help-content {
-  font-size: 14px;
+  font-size: 0.875rem;
   line-height: 1.5;
   display: flex;
   flex-direction: column;

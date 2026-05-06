@@ -14,10 +14,11 @@ import { TABLEAU_COLS, FOUNDATION_COUNT, AUTO_COMPLETE_DELAY, COLORS,
 import { UI } from './ui.js';
 import { inRect, parseSeed } from './utils.js';
 
-// In sandboxed-iframe context (launcher), wait for postMessage-backed
-// localStorage to hydrate before any save data is read.
-if (typeof window !== 'undefined' && window.__storageReady) {
-  await window.__storageReady;
+// Wait for the Arcade launcher handshake (or standalone resolve) before
+// touching state — settings hydrate synchronously, but framed/peer status
+// only settles after welcome.
+if (typeof window !== 'undefined' && window.Arcade && window.Arcade.ready) {
+  await window.Arcade.ready;
 }
 
 const canvas = document.getElementById('game');
@@ -114,14 +115,22 @@ function init() {
     onOverlayClosed: () => { markDirty(); }
   });
 
-  // Pause the loop when the page/tab/app is hidden (screen off, app switched)
-  document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) {
-      lastTime = 0; // reset dt to avoid a massive jump on resume
-      markDirty();
-    }
-    // When hidden, the loop will naturally stop since scheduleFrame won't be called
+  // Lifecycle: pause the rAF loop when the launcher hides this iframe.
+  // Arcade.onSuspend covers both quit-to-launcher and tab/window hide, so
+  // a separate visibilitychange handler is no longer needed.
+  Arcade.onSuspend(() => {
+    if (rafId !== null) { cancelAnimationFrame(rafId); rafId = null; }
+    if (state) saveGameState(serializeState(state));
   });
+  Arcade.onResume(() => {
+    lastTime = 0; // avoid a massive dt jump on resume
+    markDirty();
+  });
+  // Launcher imported a save while we were running — reload from fresh state.
+  Arcade.onStateReplaced(() => location.reload());
+
+  // Re-render when launcher settings change (font scale, handedness, etc.).
+  Arcade.onSettingsChange(() => markDirty());
 
   const saved = loadGameState();
   if (saved) {
@@ -563,9 +572,10 @@ function drawStatsOverlay(l) {
   } else {
     subtitleText = variant.charAt(0).toUpperCase() + variant.slice(1);
   }
+  const fs = Arcade.settings.fontScale();
   y += 20;
   ctx.fillStyle = 'rgba(192,168,112,0.75)';
-  ctx.font = '11px Georgia, serif';
+  ctx.font = `${11 * fs}px Georgia, serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(subtitleText, cx, y);
@@ -590,12 +600,12 @@ function drawStatsOverlay(l) {
   ];
   for (const [label, val] of rows2) {
     ctx.fillStyle = 'rgba(192,168,112,0.55)';
-    ctx.font = '13px Georgia, serif';
+    ctx.font = `${13 * fs}px Georgia, serif`;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
     ctx.fillText(label, cx - modalW/2 + 24, y);
     ctx.fillStyle = COLORS.modalTitle;
-    ctx.font = 'bold 13px Georgia, serif';
+    ctx.font = `bold ${13 * fs}px Georgia, serif`;
     ctx.textAlign = 'right';
     ctx.fillText(String(val), cx + modalW/2 - 24, y);
     y += gap;
@@ -749,7 +759,7 @@ function drawModeButton(x, y, w, h, text, active) {
   ctx.lineWidth = active ? 1.5 : 1;
   ctx.stroke();
   ctx.fillStyle = active ? COLORS.buttonText : COLORS.modeButtonText;
-  ctx.font = `${active ? 'bold' : 'normal'} 13px Georgia, serif`;
+  ctx.font = `${active ? 'bold' : 'normal'} ${13 * Arcade.settings.fontScale()}px Georgia, serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(text, x + w / 2, y + h / 2);
