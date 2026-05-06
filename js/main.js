@@ -7,7 +7,7 @@ import { initInput, getDragState } from './input.js';
 import { updateTweens, hasTweens } from './tween.js';
 import { createGameState, dealStock, moveCards, isWon, allCardsFaceUp, getAutoCompleteCard, undo, undoTo, canRecycleStock,
   serializeState, deserializeState, GameRules } from './game.js';
-import { loadStats, saveStats, saveGameState, loadGameState, clearGameState,
+import { loadStats, updateStats, saveGameState, loadGameState, clearGameState,
   loadModeSettings, saveModeSettings } from './storage.js';
 import { TABLEAU_COLS, FOUNDATION_COUNT, AUTO_COMPLETE_DELAY, COLORS,
   DRAW_MODES, RECYCLE_MODES, SPIDER_MODES, VARIANTS } from './constants.js';
@@ -49,6 +49,22 @@ let rafId = null;        // current requestAnimationFrame handle
 let dirty = true;        // true = frame needs to be drawn
 let lastTimerSec = -1;   // last rendered timer second, for detecting changes
 
+// Wall-clock for the current game. Backed by Arcade.session with a
+// persistKey so elapsed survives reloads/imports without per-game glue.
+// Suspended time (launcher hides our iframe) doesn't accrue into bestTime.
+let _timer = null;
+function startTimer(opts) {
+  if (_timer) _timer.stop();
+  _timer = Arcade.session.start({ persistKey: 'sessionElapsed' });
+  if (opts && opts.fresh) _timer.reset();
+  _timer.pause(); // updateTimerState() will resume when conditions allow
+}
+function updateTimerState() {
+  if (!_timer || !state) return;
+  const shouldRun = !state.won && state.moves > 0 && !showStats && !showModeSelect;
+  if (shouldRun) _timer.resume(); else _timer.pause();
+}
+
 function init() {
   initRenderer(canvas);
   initInput(canvas, handleAction, markDirty);
@@ -62,6 +78,7 @@ function init() {
       showModeSelect = opening;
       if (!opening) UI.hideSeedInput();
       if (opening) overlayJustOpened = true;
+      updateTimerState();
       markDirty();
     },
     onToggleStats: () => {
@@ -72,6 +89,7 @@ function init() {
       const opening = !showStats;
       showStats = opening;
       if (opening) overlayJustOpened = true;
+      updateTimerState();
       markDirty();
     },
     onToggleCollapse: () => {
@@ -135,9 +153,11 @@ function init() {
   const saved = loadGameState();
   if (saved) {
     state = deserializeState(saved);
+    startTimer();
   } else {
     newGame(false);
   }
+  updateTimerState();
 
   updateSeedDisplay();
   setCollapseRuns(modeSettings.collapseRuns); // sync renderer cache on startup
@@ -149,10 +169,12 @@ function init() {
 
 function newGame(countPrevious = true, seed = undefined) {
   if (countPrevious && state && !state.won && state.moves > 0) {
-    stats.gamesPlayed++;
-    // We do not increment gamesWon
-    stats.currentStreak = 0;
-    saveStats(stats, getGameTypeKey());
+    // Abandoned mid-game — count it played, break the streak. Do not award a win.
+    stats = updateStats(getGameTypeKey(), prev => ({
+      ...prev,
+      gamesPlayed: prev.gamesPlayed + 1,
+      currentStreak: 0,
+    }));
   }
   const variant = modeSettings.variant || 'klondike';
   let options = {};
@@ -175,6 +197,7 @@ function newGame(countPrevious = true, seed = undefined) {
   stats = loadStats(getGameTypeKey());
   
   state = createGameState(variant, options, seed);
+  startTimer({ fresh: true });
   updateSeedDisplay();
   window.__gameState = state;
   recalcLayout();
@@ -183,6 +206,7 @@ function newGame(countPrevious = true, seed = undefined) {
   showModeSelect = false;
   UI.hideSeedInput();
   clearGameState();
+  updateTimerState();
 }
 
 function restartGame() {
@@ -194,10 +218,11 @@ function restartGame() {
   }
 
   state.moves = 0;
-  state.elapsed = 0;
   state.startTime = Date.now();
   state.won = false;
   state.history = [];
+  startTimer({ fresh: true });
+  updateTimerState();
   state.stockPasses = 0;
   autoCompleting = false;
   window.__gameState = state;
@@ -266,13 +291,7 @@ function handleAction(action) {
   if (!state.won && isWon(state)) {
     state.won = true;
     spawnWinParticles();
-    stats.gamesPlayed++;
-    stats.gamesWon++;
-    stats.currentStreak++;
-    if (stats.currentStreak > stats.bestStreak) stats.bestStreak = stats.currentStreak;
-    const time = state.elapsed;
-    if (stats.bestTime === null || time < stats.bestTime) stats.bestTime = time;
-    saveStats(stats, getGameTypeKey());
+    stats = recordWin(_timer.elapsedMs());
     clearGameState();
   }
 
@@ -282,9 +301,24 @@ function handleAction(action) {
     autoCompleteTimer = 0;
   }
 
+  updateTimerState();
   saveGameState(serializeState(state));
   window.__gameState = state;
   markDirty();
+}
+
+function recordWin(timeMs) {
+  return updateStats(getGameTypeKey(), prev => {
+    const next = {
+      ...prev,
+      gamesPlayed: prev.gamesPlayed + 1,
+      gamesWon: prev.gamesWon + 1,
+      currentStreak: prev.currentStreak + 1,
+    };
+    if (next.currentStreak > next.bestStreak) next.bestStreak = next.currentStreak;
+    if (prev.bestTime === null || timeMs < prev.bestTime) next.bestTime = timeMs;
+    return next;
+  });
 }
 
 function getCardFromHit(hit) {
@@ -314,14 +348,13 @@ function loop(timestamp) {
   const dt = lastTime ? timestamp - lastTime : 16;
   lastTime = timestamp;
 
-  if (!state.won && state.moves > 0 && !showStats && !showModeSelect) {
-    state.elapsed += dt;
-    // Mark dirty only when the displayed second changes (once per second)
-    const currentSec = Math.floor(state.elapsed / 1000);
-    if (currentSec !== lastTimerSec) {
-      lastTimerSec = currentSec;
-      dirty = true;
-    }
+  // Pull elapsed from the suspend-aware tracker; updateTimerState() controls
+  // whether it advances based on win/moves/overlay state.
+  const elapsedMs = _timer.elapsedMs();
+  const currentSec = Math.floor(elapsedMs / 1000);
+  if (currentSec !== lastTimerSec) {
+    lastTimerSec = currentSec;
+    dirty = true;
   }
 
   // Auto-complete
@@ -337,15 +370,10 @@ function loop(timestamp) {
         if (isWon(state)) {
           state.won = true;
           spawnWinParticles();
-          stats.gamesPlayed++;
-          stats.gamesWon++;
-          stats.currentStreak++;
-          if (stats.currentStreak > stats.bestStreak) stats.bestStreak = stats.currentStreak;
-          const time = state.elapsed;
-          if (stats.bestTime === null || time < stats.bestTime) stats.bestTime = time;
-          saveStats(stats, getGameTypeKey());
+          stats = recordWin(_timer.elapsedMs());
           clearGameState();
           autoCompleting = false;
+          updateTimerState();
         }
         window.__gameState = state;
         dirty = true;
@@ -383,7 +411,7 @@ function render(dt) {
   clear();
 
   // Update HTML header timer and moves
-  UI.updateHeader(state.elapsed, state.moves);
+  UI.updateHeader(_timer.elapsedMs(), state.moves);
 
   // Get current drag state for the rest of render
   const drag = getDragState();
@@ -486,7 +514,7 @@ function render(dt) {
   if (state.won) {
     updateAndDrawParticles(dt);
     drawText(l.w / 2, l.h / 2 - 40, '🎉 You Won! 🎉', 28, 'center');
-    drawText(l.w / 2, l.h / 2, `Time: ${Math.floor(state.elapsed / 1000)}s  Moves: ${state.moves}`, 18, 'center');
+    drawText(l.w / 2, l.h / 2, `Time: ${Math.floor(_timer.elapsedMs() / 1000)}s  Moves: ${state.moves}`, 18, 'center');
     drawButton(l.w / 2 - 50, l.h / 2 + 30, 100, 36, 'New Game', 14);
   }
 

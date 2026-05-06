@@ -37,7 +37,6 @@ export function createGameState(variant = 'klondike', options = {}, seed = undef
     zones,
     moves: 0,
     startTime: Date.now(),
-    elapsed: 0,
     won: false,
     history: [],
     drawCount: options.drawCount || 1,
@@ -220,7 +219,6 @@ export function serializeState(state) {
   return {
     encodedZones: serializedZones,
     moves: state.moves,
-    elapsed: state.elapsed,
     startTime: state.startTime,
     drawCount: state.drawCount,
     maxPasses: state.maxPasses === Infinity ? 'Infinity' : state.maxPasses,
@@ -278,7 +276,6 @@ export function deserializeState(data) {
     initialZones,
     seed: data.seed,
     moves: data.moves || 0,
-    elapsed: data.elapsed || 0,
     startTime: data.startTime || Date.now(),
     variant: inferredVariant,
     options: data.options || {},

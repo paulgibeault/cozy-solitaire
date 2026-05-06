@@ -38,6 +38,28 @@
       var mode = takeJSON('cozy-solitaire-mode');
       if (mode) Arcade.state.set('settings', mode);
     });
+
+    // Split the single nested `stats` blob ({ [gameTypeKey]: {...}, ... })
+    // into per-category Arcade.stats entries (arcade.v1.cozy-solitaire.stats.<key>).
+    Arcade.state.migrate('v2-stats-split', function () {
+      var old = Arcade.state.get('stats');
+      if (!old || typeof old !== 'object') return;
+      Object.keys(old).forEach(function (k) {
+        var v = old[k];
+        if (v && typeof v === 'object') Arcade.stats.update(k, function () { return v; });
+      });
+      Arcade.state.remove('stats');
+    });
+
+    // Move elapsed off the currentGame blob into Arcade.session's persistKey.
+    Arcade.state.migrate('v3-elapsed-to-session', function () {
+      var saved = Arcade.state.get('currentGame');
+      if (saved && typeof saved.elapsed === 'number') {
+        Arcade.state.set('sessionElapsed', saved.elapsed);
+        delete saved.elapsed;
+        Arcade.state.set('currentGame', saved);
+      }
+    });
   </script>
 </head>
 <body>

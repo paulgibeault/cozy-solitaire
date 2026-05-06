@@ -1,4 +1,4 @@
-// storage.js — thin wrapper over the Arcade SDK's state API.
+// storage.js — thin wrappers over the Arcade SDK's state and stats APIs.
 // The SDK exposes window.Arcade synchronously after arcade-sdk.js loads in
 // index.html, so it's always defined by the time these functions run.
 
@@ -18,19 +18,20 @@ const defaultMode = {
   showHints: true,
 };
 
-// Stats are stored as a single nested object: { [gameTypeKey]: { gamesPlayed, ... }, ... }
+// Per-game-type stats live at arcade.v1.cozy-solitaire.stats.<gameTypeKey>.
+// getOrInit deep-merges defaults under the stored value, so newly-added
+// fields surface with their defaults on saves from older versions.
 export function loadStats(gameTypeKey) {
-  const all = Arcade.state.get('stats');
-  if (all && typeof all === 'object' && gameTypeKey && all[gameTypeKey]) {
-    return { ...defaultStats, ...all[gameTypeKey] };
-  }
-  return { ...defaultStats };
+  return Arcade.stats.getOrInit(gameTypeKey, defaultStats);
 }
 
-export function saveStats(stats, gameTypeKey) {
-  const all = Arcade.state.get('stats') || {};
-  all[gameTypeKey] = stats;
-  Arcade.state.set('stats', all);
+// Atomic update — the updater receives current stats (with defaults merged)
+// and returns the next value. Returns the new value.
+export function updateStats(gameTypeKey, updater) {
+  return Arcade.stats.update(gameTypeKey, prev => {
+    const merged = { ...defaultStats, ...prev };
+    return updater(merged);
+  });
 }
 
 export function saveGameState(state) {
