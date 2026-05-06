@@ -53,7 +53,7 @@ canvas {
   padding: 4px 8px;
   margin-left: -8px;
   border-radius: 6px;
-  transition: background 0.2s;
+  transition: background calc(0.2s * var(--motion-scale, 1));
 }
 #app-title-container:hover {
   background: rgba(255, 255, 255, 0.1);
@@ -80,7 +80,7 @@ canvas {
 .dropdown-caret {
   font-size: 0.625rem;
   opacity: 0.7;
-  transition: transform 0.2s;
+  transition: transform calc(0.2s * var(--motion-scale, 1));
 }
 
 #header-stats {
@@ -105,8 +105,8 @@ canvas {
   z-index: 400;
   opacity: 1;
   transform: translateY(0);
-  transition: opacity 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275), 
-              transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  transition: opacity calc(0.2s * var(--motion-scale, 1)) cubic-bezier(0.175, 0.885, 0.32, 1.275),
+              transform calc(0.2s * var(--motion-scale, 1)) cubic-bezier(0.175, 0.885, 0.32, 1.275);
   pointer-events: auto;
 }
 
@@ -151,7 +151,7 @@ canvas {
   cursor: pointer;
   display: flex;
   align-items: center;
-  transition: all 0.2s ease;
+  transition: all calc(0.2s * var(--motion-scale, 1)) ease;
 }
 
 .dropdown-btn .icon {
@@ -208,7 +208,7 @@ html[data-handedness="left"] #undo-wrapper {
   align-items: center;
   cursor: pointer;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
-  transition: transform 0.1s, background 0.2s;
+  transition: transform calc(0.1s * var(--motion-scale, 1)), background calc(0.2s * var(--motion-scale, 1));
   pointer-events: auto;
 }
 
@@ -233,8 +233,8 @@ html[data-handedness="left"] #undo-wrapper {
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6), 0 0 15px rgba(138, 112, 80, 0.2);
   opacity: 1;
   transform: translateY(0);
-  transition: opacity 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275),
-              transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  transition: opacity calc(0.2s * var(--motion-scale, 1)) cubic-bezier(0.175, 0.885, 0.32, 1.275),
+              transform calc(0.2s * var(--motion-scale, 1)) cubic-bezier(0.175, 0.885, 0.32, 1.275);
   transform-origin: bottom right;
   pointer-events: auto;
 }
@@ -373,7 +373,7 @@ html[data-handedness="left"] .undo-dropdown {
   cursor: pointer;
   font-family: Georgia, serif;
   font-weight: bold;
-  transition: background 0.2s;
+  transition: background calc(0.2s * var(--motion-scale, 1));
 }
 #btn-close-help:hover {
   background: #5a4830;

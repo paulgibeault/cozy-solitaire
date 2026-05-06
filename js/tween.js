@@ -2,6 +2,12 @@
 const activeTweens = [];
 
 export function tween(obj, props, duration = 200, easing = 'easeOutQuad') {
+  // Honor the launcher's reduced-motion preference: snap to end values and
+  // resolve immediately rather than animating.
+  if (typeof Arcade !== 'undefined' && Arcade.settings && Arcade.settings.reducedMotion()) {
+    for (const key in props) obj[key] = props[key];
+    return Promise.resolve();
+  }
   return new Promise(resolve => {
     const start = {};
     const end = {};
