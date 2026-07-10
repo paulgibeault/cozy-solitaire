@@ -18,7 +18,7 @@ A warm, grandma-friendly Solitaire game built with vanilla JavaScript and HTML5 
 - **Touch & mouse** — drag-and-drop, tap-to-auto-move, double-tap to foundation
 - **Auto-complete** — when all cards are face up, cards fly to foundations
 - **Statistics** — games played, won, streaks, best time
-- **Cozy theme** — warm browns, soft greens, cream cards, cabin vibes
+- **Cozy theme** — warm browns, soft greens, cream cards, cabin vibes (a single fixed palette — no theme switching)
 - **Mobile-first** — responsive scaling, large touch targets
 - **PWA-ready** — installable, works offline
 - **Zero dependencies** — pure ES modules, no build step
