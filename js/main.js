@@ -59,10 +59,27 @@ function startTimer(opts) {
   if (opts && opts.fresh) _timer.reset();
   _timer.pause(); // updateTimerState() will resume when conditions allow
 }
+function timerShouldRun() {
+  return !!(_timer && state && !state.won && state.moves > 0 && !showStats && !showModeSelect);
+}
 function updateTimerState() {
   if (!_timer || !state) return;
-  const shouldRun = !state.won && state.moves > 0 && !showStats && !showModeSelect;
-  if (shouldRun) _timer.resume(); else _timer.pause();
+  if (timerShouldRun()) _timer.resume(); else _timer.pause();
+}
+
+// The rAF loop only self-reschedules while something is animating (see
+// loop()'s tail), so it goes fully idle while the player is just thinking —
+// elapsed keeps accruing in _timer, but the header clock freezes until the
+// next interaction. This 1Hz tick nudges a frame through so the displayed
+// time stays live; it only runs while framed/foregrounded (started/stopped
+// alongside Arcade.onResume/onSuspend).
+let clockTickId = null;
+function startClockTick() {
+  if (clockTickId !== null) return;
+  clockTickId = setInterval(() => { if (timerShouldRun()) markDirty(); }, 1000);
+}
+function stopClockTick() {
+  if (clockTickId !== null) { clearInterval(clockTickId); clockTickId = null; }
 }
 
 function init() {
@@ -139,16 +156,26 @@ function init() {
   Arcade.onSuspend(() => {
     if (rafId !== null) { cancelAnimationFrame(rafId); rafId = null; }
     if (state) saveGameState(serializeState(state));
+    stopClockTick();
   });
   Arcade.onResume(() => {
     lastTime = 0; // avoid a massive dt jump on resume
     markDirty();
+    startClockTick();
   });
   // Launcher imported a save while we were running — reload from fresh state.
   Arcade.onStateReplaced(() => location.reload());
 
   // Re-render when launcher settings change (font scale, handedness, etc.).
   Arcade.onSettingsChange(() => markDirty());
+
+  // Arcade.onSuspend only fires when framed — standalone (a bare tab) never
+  // gets it, so pagehide is the fallback to flush accrued session time and
+  // in-progress state before the page is torn down.
+  window.addEventListener('pagehide', () => {
+    if (state) saveGameState(serializeState(state));
+    if (_timer) Arcade.state.set('sessionElapsed', _timer.elapsedMs());
+  });
 
   const saved = loadGameState();
   if (saved) {
@@ -158,6 +185,7 @@ function init() {
     newGame(false);
   }
   updateTimerState();
+  startClockTick(); // page loads foregrounded; onResume only fires on later resumes
 
   updateSeedDisplay();
   setCollapseRuns(modeSettings.collapseRuns); // sync renderer cache on startup
@@ -218,7 +246,6 @@ function restartGame() {
   }
 
   state.moves = 0;
-  state.startTime = Date.now();
   state.won = false;
   state.history = [];
   startTimer({ fresh: true });
@@ -359,27 +386,32 @@ function loop(timestamp) {
 
   // Auto-complete
   if (autoCompleting && !state.won) {
+    const reducedMotion = Arcade.settings.reducedMotion();
     autoCompleteTimer += dt;
-    if (autoCompleteTimer >= AUTO_COMPLETE_DELAY) {
+    if (reducedMotion || autoCompleteTimer >= AUTO_COMPLETE_DELAY) {
       autoCompleteTimer = 0;
-      const ac = getAutoCompleteCard(state);
-      if (ac) {
-        if (ac.sourceZoneId) {
-          moveCards(state, ac.sourceZoneId, ac.cardIndex !== undefined ? ac.cardIndex : 0, ac.targetZoneId);
-        }
-        if (isWon(state)) {
-          state.won = true;
-          spawnWinParticles();
-          stats = recordWin(_timer.elapsedMs());
-          clearGameState();
+      // Reduced motion: drain every remaining card this tick instead of
+      // pacing one card per AUTO_COMPLETE_DELAY.
+      do {
+        const ac = getAutoCompleteCard(state);
+        if (ac) {
+          if (ac.sourceZoneId) {
+            moveCards(state, ac.sourceZoneId, ac.cardIndex !== undefined ? ac.cardIndex : 0, ac.targetZoneId);
+          }
+          if (isWon(state)) {
+            state.won = true;
+            spawnWinParticles();
+            stats = recordWin(_timer.elapsedMs());
+            clearGameState();
+            autoCompleting = false;
+            updateTimerState();
+          }
+          window.__gameState = state;
+          dirty = true;
+        } else {
           autoCompleting = false;
-          updateTimerState();
         }
-        window.__gameState = state;
-        dirty = true;
-      } else {
-        autoCompleting = false;
-      }
+      } while (reducedMotion && autoCompleting);
     }
     scheduleFrame(); // keep loop alive during auto-complete
   }
