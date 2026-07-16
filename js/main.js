@@ -65,6 +65,17 @@ function updateTimerState() {
   if (shouldRun) _timer.resume(); else _timer.pause();
 }
 
+// Transient status toasts. The launcher renders the toast chrome when framed;
+// the SDK draws its own fallback when standalone. Feature-detected the same
+// way the boot handshake guards Arcade.ready, so an older SDK snapshot
+// without ui.toast degrades to silence instead of a runtime error.
+function toast(message, kind) {
+  if (typeof window !== 'undefined' && window.Arcade && window.Arcade.ui &&
+      typeof window.Arcade.ui.toast === 'function') {
+    window.Arcade.ui.toast(message, { kind });
+  }
+}
+
 function init() {
   initRenderer(canvas);
   initInput(canvas, handleAction, markDirty);
@@ -246,9 +257,19 @@ function handleAction(action) {
   if (autoCompleting) return;
 
   switch (action.type) {
-    case 'tapStock':
-      dealStock(state);
+    case 'tapStock': {
+      const dealt = dealStock(state);
+      // dealStock returns null when the tap did nothing. Toast only for the
+      // pass-limit case (klondike with finite passes and cards left in the
+      // waste) — an empty waste or a blocked spider deal stays silent.
+      if (dealt === null &&
+          state.maxPasses !== Infinity &&
+          state.stockPasses >= state.maxPasses) {
+        const waste = state.zones.get('waste');
+        if (waste && !waste.isEmpty()) toast('No more passes', 'warning');
+      }
       break;
+    }
 
     case 'tap': {
       const card = getCardFromHit(action);
@@ -308,7 +329,8 @@ function handleAction(action) {
 }
 
 function recordWin(timeMs) {
-  return updateStats(getGameTypeKey(), prev => {
+  let newBest = false;
+  const updated = updateStats(getGameTypeKey(), prev => {
     const next = {
       ...prev,
       gamesPlayed: prev.gamesPlayed + 1,
@@ -316,9 +338,14 @@ function recordWin(timeMs) {
       currentStreak: prev.currentStreak + 1,
     };
     if (next.currentStreak > next.bestStreak) next.bestStreak = next.currentStreak;
-    if (prev.bestTime === null || timeMs < prev.bestTime) next.bestTime = timeMs;
+    if (prev.bestTime === null || timeMs < prev.bestTime) {
+      next.bestTime = timeMs;
+      newBest = true;
+    }
     return next;
   });
+  if (newBest) toast('Best time!', 'success');
+  return updated;
 }
 
 function getCardFromHit(hit) {
@@ -890,6 +917,7 @@ function overlayClickHandler(e) {
         UI.hideSeedInput();
         const explicitSeed = parseSeed(UI.getSeedInputValue());
         newGame(true, explicitSeed);
+        if (explicitSeed !== undefined) toast('Seed applied', 'info');
         UI.clearSeedInput();
         window._pendingSeed = '';
         stats = loadStats(getGameTypeKey());
