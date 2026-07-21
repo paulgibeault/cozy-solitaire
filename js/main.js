@@ -8,7 +8,8 @@ import { updateTweens, hasTweens } from './tween.js';
 import { createGameState, dealStock, moveCards, isWon, allCardsFaceUp, getAutoCompleteCard, undo, undoTo, canRecycleStock,
   serializeState, deserializeState, GameRules } from './game.js';
 import { loadStats, updateStats, saveGameState, loadGameState, clearGameState,
-  loadModeSettings, saveModeSettings } from './storage.js';
+  loadModeSettings, saveModeSettings, writeWinRecords, seedRecords } from './storage.js';
+import { sfx, playWinJingle } from './sfx.js';
 import { TABLEAU_COLS, FOUNDATION_COUNT, AUTO_COMPLETE_DELAY, COLORS,
   DRAW_MODES, RECYCLE_MODES, SPIDER_MODES, VARIANTS } from './constants.js';
 import { UI } from './ui.js';
@@ -94,6 +95,9 @@ function toast(message, kind) {
 }
 
 function init() {
+  // Seed Arcade.records from legacy stats bests once (records-v1). Idempotent.
+  seedRecords();
+
   initRenderer(canvas);
   initInput(canvas, handleAction, markDirty);
   window.addEventListener('resize', () => { recalcLayout(); markDirty(); });
@@ -148,11 +152,13 @@ function init() {
     getHistory: () => state?.history || [],
     onUndoTo: (index) => {
       undoTo(state, index);
+      sfx('undo');
       saveGameState(serializeState(state));
       markDirty();
     },
     onUndo: () => {
       if (undo(state)) {
+        sfx('undo');
         saveGameState(serializeState(state));
         markDirty();
       }
@@ -289,11 +295,17 @@ function handleAction(action) {
       // dealStock returns null when the tap did nothing. Toast only for the
       // pass-limit case (klondike with finite passes and cards left in the
       // waste) — an empty waste or a blocked spider deal stays silent.
-      if (dealt === null &&
-          state.maxPasses !== Infinity &&
-          state.stockPasses >= state.maxPasses) {
-        const waste = state.zones.get('waste');
-        if (waste && !waste.isEmpty()) toast('No more passes', 'warning');
+      if (dealt === null) {
+        if (state.maxPasses !== Infinity &&
+            state.stockPasses >= state.maxPasses) {
+          const waste = state.zones.get('waste');
+          if (waste && !waste.isEmpty()) {
+            toast('No more passes', 'warning');
+            sfx('invalid-move');
+          }
+        }
+      } else {
+        sfx('card-place');
       }
       break;
     }
@@ -339,6 +351,7 @@ function handleAction(action) {
   if (!state.won && isWon(state)) {
     state.won = true;
     spawnWinParticles();
+    playWinJingle();
     stats = recordWin(_timer.elapsedMs());
     clearGameState();
   }
@@ -372,6 +385,17 @@ function recordWin(timeMs) {
     return next;
   });
   if (newBest) toast('Best time!', 'success');
+
+  // Promote this win to the launcher's per-variant Records (cozy-solitaire#6).
+  // Records are keyed by bare variant; the granular stats config key only
+  // scopes the game-formatted Statistics view. best() handles ties/regressions.
+  const variant = modeSettings.variant || 'klondike';
+  writeWinRecords(variant, {
+    timeMs,
+    moves: state.moves,
+    streak: updated.bestStreak,
+  });
+
   return updated;
 }
 
@@ -383,7 +407,23 @@ function getCardFromHit(hit) {
 }
 
 function moveFromHit(from, toZoneId) {
-  moveCards(state, from.sourceZoneId, from.cardIndex !== undefined ? from.cardIndex : 0, toZoneId);
+  const idx = from.cardIndex !== undefined ? from.cardIndex : 0;
+  // The card that would be newly exposed on the origin pile (moveCards flips it
+  // face-up if it was face-down). Captured before the move so we can tell a
+  // flip from a plain place afterwards — same card object, so re-reading
+  // .faceUp reflects the flip.
+  const fromZone = state.zones.get(from.sourceZoneId);
+  const exposed = (fromZone && idx > 0) ? fromZone.cards[idx - 1] : null;
+  const wasFaceDown = !!(exposed && !exposed.faceUp);
+
+  const moved = moveCards(state, from.sourceZoneId, idx, toZoneId);
+  if (!moved) {
+    sfx('invalid-move');
+    return;
+  }
+  // A flip is the more salient event, so it supersedes the place cue.
+  if (wasFaceDown && exposed.faceUp) sfx('card-flip');
+  else sfx('card-place');
 }
 
 function scheduleFrame() {
@@ -424,10 +464,15 @@ function loop(timestamp) {
         if (ac) {
           if (ac.sourceZoneId) {
             moveCards(state, ac.sourceZoneId, ac.cardIndex !== undefined ? ac.cardIndex : 0, ac.targetZoneId);
+            // Cascade tick on the paced auto-complete; skip in reduced-motion,
+            // which drains every remaining card in this single tick (A7 — no
+            // burst of simultaneous cues).
+            if (!reducedMotion) sfx('card-place');
           }
           if (isWon(state)) {
             state.won = true;
             spawnWinParticles();
+            playWinJingle();
             stats = recordWin(_timer.elapsedMs());
             clearGameState();
             autoCompleting = false;
