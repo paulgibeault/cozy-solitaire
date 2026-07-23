@@ -74,6 +74,7 @@ Open `http://localhost:8000` on your phone or browser.
 cozy-solitaire/
 ├── index.html          # Entry point
 ├── manifest.json       # PWA manifest
+├── package.json        # "test": "node --test tests/*.test.js"
 ├── css/style.css       # Minimal styles (canvas handles rendering)
 ├── js/
 │   ├── main.js         # Game loop, state machine, rendering orchestration
@@ -83,7 +84,9 @@ cozy-solitaire/
 │   ├── renderer.js     # Canvas drawing (cards, piles, effects)
 │   ├── input.js        # Mouse/touch input, drag-and-drop
 │   ├── tween.js        # Animation system
-│   └── storage.js      # localStorage persistence
+│   ├── sfx.js          # Arcade.audio cues (card-place, flip, win jingle, ...)
+│   ├── storage.js      # localStorage persistence + Arcade.records writes
+│   └── rules/          # Per-variant rule modules (klondike, freecell, spider)
 └── tests/
     └── game.test.js    # Game logic tests
 ```
