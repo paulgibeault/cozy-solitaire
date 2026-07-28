@@ -74,6 +74,15 @@
   'use strict';
   const S = global.ArcadeAudioElements;
 
+  // Every cue here is built from the element library's gestures, so with the
+  // library absent — a stale service-worker cache, or running standalone off
+  // the launcher origin — there is nothing registrable and the game's audio
+  // module takes its fallback path. Bail before dereferencing S: this file is
+  // a plain script, and a throw here would surface as a page error even though
+  // the fallback itself works. Also covers an OLDER library that predates
+  // registerPack, which is the same stale-cache scenario one version on.
+  if (!S || typeof S.registerPack !== 'function') return;
+
   // A small paneled room with soft furnishings: more reflective than
   // sow-duku's open yard, far deader than hecknsic's glass box, and warmer
   // than either — the high shelf is the single biggest lever for "parlor"
@@ -439,5 +448,8 @@
     },
   };
 
-  global.CozySolitairePack = { name: 'cozy-solitaire', ROOM, SENDS, CUES };
+  // Published under the framework's well-known handle (arcade-audio.js
+  // registerPack) so the game's audio module and the launcher's soundpack
+  // toolchain both reach it without either side knowing this game's name.
+  S.registerPack({ name: 'cozy-solitaire', ROOM, SENDS, CUES });
 })(typeof window !== 'undefined' ? window : globalThis);
