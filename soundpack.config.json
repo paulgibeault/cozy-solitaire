@@ -1,0 +1,10 @@
+{
+  "name": "cozy-solitaire",
+  "pack": "js/soundpack.js",
+  "auditions": {
+    "full": "audio/audition.js",
+    "short": "audio/audition-short.js"
+  },
+  "out": "audio/out",
+  "sampleRate": 48000
+}

@@ -71,7 +71,7 @@ function audio() {
 }
 
 function pack() {
-  return (typeof window !== 'undefined' && window.CozySolitairePack) || null;
+  return (typeof window !== 'undefined' && window.ArcadeSoundPack) || null;
 }
 
 // The one guarded play-site, so the feature check lives in exactly one place.

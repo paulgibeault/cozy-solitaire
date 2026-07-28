@@ -439,5 +439,8 @@
     },
   };
 
-  global.CozySolitairePack = { name: 'cozy-solitaire', ROOM, SENDS, CUES };
+  // Published under the framework's well-known handle (arcade-audio.js
+  // registerPack) so the game's audio module and the launcher's soundpack
+  // toolchain both reach it without either side knowing this game's name.
+  S.registerPack({ name: 'cozy-solitaire', ROOM, SENDS, CUES });
 })(typeof window !== 'undefined' ? window : globalThis);
