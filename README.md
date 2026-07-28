@@ -84,7 +84,8 @@ cozy-solitaire/
 │   ├── renderer.js     # Canvas drawing (cards, piles, effects)
 │   ├── input.js        # Mouse/touch input, drag-and-drop
 │   ├── tween.js        # Animation system
-│   ├── sfx.js          # Arcade.audio cues (card-place, flip, win jingle, ...)
+│   ├── soundpack.js    # The sound design: room, levels, 13 cue graphs
+│   ├── audio.js        # Registers the pack with Arcade.audio + play wrappers
 │   ├── storage.js      # localStorage persistence + Arcade.records writes
 │   └── rules/          # Per-variant rule modules (klondike, freecell, spider)
 └── tests/

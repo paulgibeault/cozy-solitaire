@@ -171,6 +171,9 @@ function handleMove(x, y) {
   
   if (!dragState.dragging && (Math.abs(dx) > 10 || Math.abs(dy) > 10)) {
     dragState.dragging = true;
+    // Fires once per drag, at the threshold crossing rather than on press, so
+    // a tap never sounds like a lift.
+    if (!dragState.isPeekHit) onAction({ type: 'dragStart', ...dragState });
   }
 
   dragState.currentX = x;
