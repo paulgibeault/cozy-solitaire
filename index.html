@@ -14,6 +14,13 @@
   <link rel="stylesheet" href="css/style.css">
   <title>Cozy Solitaire</title>
   <script src="/arcade-sdk.js"></script>
+  <!-- The shared physical-gesture element library, then this game's sound
+       pack. Both are classic scripts so they evaluate before js/main.js's
+       module graph, which is what lets js/audio.js register at import time.
+       Missing arcade-audio.js is a supported state: audio.js falls back to
+       the archived spec-cue profile. -->
+  <script src="/arcade-audio.js"></script>
+  <script src="js/soundpack.js"></script>
   <script>
     Arcade.init({ gameId: 'cozy-solitaire' });
 

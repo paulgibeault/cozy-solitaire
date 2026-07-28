@@ -9,7 +9,9 @@ import { createGameState, dealStock, moveCards, isWon, allCardsFaceUp, getAutoCo
   serializeState, deserializeState, GameRules } from './game.js';
 import { loadStats, updateStats, saveGameState, loadGameState, clearGameState,
   loadModeSettings, saveModeSettings, writeWinRecords, seedRecords } from './storage.js';
-import { sfx, playWinJingle } from './sfx.js';
+import { playPlace, playFoundation, playFlip, playLift, playRunPlace, playInvalid,
+  playPassLimit, playRecycle, playDeal, playAutoPlace, playSequence, playUndo,
+  playWin } from './audio.js';
 import { TABLEAU_COLS, FOUNDATION_COUNT, AUTO_COMPLETE_DELAY, COLORS,
   DRAW_MODES, RECYCLE_MODES, SPIDER_MODES, VARIANTS } from './constants.js';
 import { UI } from './ui.js';
@@ -49,6 +51,10 @@ let lastTime = 0;
 let rafId = null;        // current requestAnimationFrame handle
 let dirty = true;        // true = frame needs to be drawn
 let lastTimerSec = -1;   // last rendered timer second, for detecting changes
+// The deal flourish is for a game the player asked for. init() deals one too,
+// and a page that makes a noise on load is both startling and the thing
+// browser autoplay policy exists to stop, so boot stays silent.
+let booting = true;
 
 // Wall-clock for the current game. Backed by Arcade.session with a
 // persistKey so elapsed survives reloads/imports without per-game glue.
@@ -152,13 +158,13 @@ function init() {
     getHistory: () => state?.history || [],
     onUndoTo: (index) => {
       undoTo(state, index);
-      sfx('undo');
+      playUndo();
       saveGameState(serializeState(state));
       markDirty();
     },
     onUndo: () => {
       if (undo(state)) {
-        sfx('undo');
+        playUndo();
         saveGameState(serializeState(state));
         markDirty();
       }
@@ -210,6 +216,7 @@ function init() {
   window.__gameState = state;
   recalcLayout();
   scheduleFrame();
+  booting = false;
 }
 
 function newGame(countPrevious = true, seed = undefined) {
@@ -252,6 +259,7 @@ function newGame(countPrevious = true, seed = undefined) {
   UI.hideSeedInput();
   clearGameState();
   updateTimerState();
+  if (!booting) playDeal();
 }
 
 function restartGame() {
@@ -273,6 +281,7 @@ function restartGame() {
   recalcLayout();
   updateSeedDisplay();
   saveGameState(serializeState(state));
+  playDeal();
 }
 
 function updateSeedDisplay() {
@@ -301,11 +310,23 @@ function handleAction(action) {
           const waste = state.zones.get('waste');
           if (waste && !waste.isEmpty()) {
             toast('No more passes', 'warning');
-            sfx('invalid-move');
+            // Its own cue, not the generic refusal: running out of passes is
+            // a harder stop than "not there", and the pack voices it lower
+            // and longer so the two are tellable apart without looking.
+            playPassLimit();
           }
         }
+      } else if (dealt === 'recycle') {
+        // dealStock returns the STRING 'recycle', which is truthy — before
+        // the pack this fell into the branch below and a deck turning over
+        // sounded exactly like a single card being dealt.
+        playRecycle();
+      } else if (state.variant === 'spider') {
+        // Spider deals a card onto every column at once, which is a scatter
+        // of landings rather than one card into the waste.
+        playRunPlace(10);
       } else {
-        sfx('card-place');
+        playPlace();
       }
       break;
     }
@@ -339,6 +360,12 @@ function handleAction(action) {
       break;
     }
 
+    case 'dragStart': {
+      // Nothing has moved yet — this is only the cards leaving the felt.
+      playLift();
+      break;
+    }
+
     case 'drop': {
       if (!action.to) break;
       const { from, to } = action;
@@ -351,7 +378,7 @@ function handleAction(action) {
   if (!state.won && isWon(state)) {
     state.won = true;
     spawnWinParticles();
-    playWinJingle();
+    playWin();
     stats = recordWin(_timer.elapsedMs());
     clearGameState();
   }
@@ -406,6 +433,18 @@ function getCardFromHit(hit) {
   return zone.cards[hit.cardIndex !== undefined ? hit.cardIndex : zone.cards.length - 1];
 }
 
+// How many cards are sitting on foundations. The cheapest way to notice that
+// a move sent cards home *including the ones the rules move on our own
+// behalf*: spider sweeps a completed thirteen-card run to a foundation from
+// inside afterMove, so the zone we asked to move to is not where they ended up.
+function foundationTotal() {
+  let n = 0;
+  for (const [zoneId, zone] of state.zones.entries()) {
+    if (zoneId.startsWith('foundation')) n += zone.cards.length;
+  }
+  return n;
+}
+
 function moveFromHit(from, toZoneId) {
   const idx = from.cardIndex !== undefined ? from.cardIndex : 0;
   // The card that would be newly exposed on the origin pile (moveCards flips it
@@ -415,15 +454,35 @@ function moveFromHit(from, toZoneId) {
   const fromZone = state.zones.get(from.sourceZoneId);
   const exposed = (fromZone && idx > 0) ? fromZone.cards[idx - 1] : null;
   const wasFaceDown = !!(exposed && !exposed.faceUp);
+  // Both captured before the move, because afterwards these cards have left
+  // the zone: how many travel together, and which card leads them.
+  const runCount = fromZone ? fromZone.cards.length - idx : 1;
+  const movedCard = fromZone ? fromZone.cards[idx] : null;
+  const homeBefore = foundationTotal();
 
   const moved = moveCards(state, from.sourceZoneId, idx, toZoneId);
   if (!moved) {
-    sfx('invalid-move');
+    playInvalid();
     return;
   }
-  // A flip is the more salient event, so it supersedes the place cue.
-  if (wasFaceDown && exposed.faceUp) sfx('card-flip');
-  else sfx('card-place');
+
+  // One cue per move, most-significant wins — two cues from the same handler
+  // land on top of each other and both get lost.
+  const wentHome = foundationTotal() - homeBefore;
+  if (wentHome >= 13) {
+    playSequence();
+  } else if (wentHome > 0) {
+    // A card going home outranks the flip it may have uncovered: the rank
+    // ladder is the game's through-line, and a ladder with rungs missing
+    // stops reading as a climb. The flip is still there to see.
+    playFoundation(movedCard ? movedCard.order : 1);
+  } else if (wasFaceDown && exposed.faceUp) {
+    playFlip();
+  } else if (runCount > 1) {
+    playRunPlace(runCount);
+  } else {
+    playPlace();
+  }
 }
 
 function scheduleFrame() {
@@ -463,16 +522,20 @@ function loop(timestamp) {
         const ac = getAutoCompleteCard(state);
         if (ac) {
           if (ac.sourceZoneId) {
-            moveCards(state, ac.sourceZoneId, ac.cardIndex !== undefined ? ac.cardIndex : 0, ac.targetZoneId);
+            const acIdx = ac.cardIndex !== undefined ? ac.cardIndex : 0;
+            const acZone = state.zones.get(ac.sourceZoneId);
+            const acCard = acZone ? acZone.cards[acIdx] : null;
+            moveCards(state, ac.sourceZoneId, acIdx, ac.targetZoneId);
             // Cascade tick on the paced auto-complete; skip in reduced-motion,
             // which drains every remaining card in this single tick (A7 — no
-            // burst of simultaneous cues).
-            if (!reducedMotion) sfx('card-place');
+            // burst of simultaneous cues). The rank puts each tick on the
+            // ladder, so the cascade climbs as it drains.
+            if (!reducedMotion) playAutoPlace(acCard ? acCard.order : 1);
           }
           if (isWon(state)) {
             state.won = true;
             spawnWinParticles();
-            playWinJingle();
+            playWin();
             stats = recordWin(_timer.elapsedMs());
             clearGameState();
             autoCompleting = false;
