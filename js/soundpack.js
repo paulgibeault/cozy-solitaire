@@ -120,7 +120,12 @@
   // workhorse touch cues sit at TOUCH and everything else is placed relative
   // to it, because `place` and `flip` are what the player actually hears
   // thousands of times and everything else has to live beside them.
-  const TOUCH = 0.135;    // a card onto felt — the reference level
+  // TOUCH sat at 0.135 through v1's approval, but the pre-fix renderer had
+  // presented the audition's opening `place` ~6 dB quieter than that (the
+  // t=0 compressor warm-up, launcher #106) — and when the difference was put
+  // in front of Paul, his ear chose the quieter card. So the reference moved
+  // to what was actually approved, and the whole touch family follows it.
+  const TOUCH = 0.068;    // a card onto felt — the reference level
   const GRAZE = 0.072;    // a corner lifting; half a gesture and feels it
   const NO = 0.115;       // refused — present, never a buzzer
   const SHUFFLE = 0.100;  // per sheet in a riffle; many of them at once
