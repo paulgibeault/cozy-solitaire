@@ -1,8 +1,12 @@
-name: Deploy to GitHub Pages (Prod)
+# Thin caller for the fleet CI/CD standard. The pipeline lives in the
+# launcher repo (fleet-ci.yml); change it there and every app follows.
+# See GAME_INTEGRATION.md §13a.
+name: CI & Deploy Pages
 
 on:
   push:
-    branches: ["main"]
+    branches: [main]
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -10,38 +14,11 @@ permissions:
   pages: write
   id-token: write
 
+# Per-ref, so a PR run never cancels main's deploy.
 concurrency:
-  group: "pages"
-  cancel-in-progress: false
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - name: Run tests
-        run: node --test 'tests/*.test.js'
-
-  deploy:
-    needs: test
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Setup Pages
-        uses: actions/configure-pages@v5
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: '.'
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+  fleet:
+    uses: paulgibeault/paulgibeault.github.io/.github/workflows/fleet-ci.yml@main
