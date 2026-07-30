@@ -53,7 +53,13 @@ export function loadModeSettings() {
 }
 
 export function saveModeSettings(settings) {
-  Arcade.state.set('settings', settings);
+  // { sync: true } opts this key into Arcade.sync cross-device replication:
+  // mode preferences follow the player between linked devices. Settings are
+  // the right key for last-write-wins semantics — whichever device chose a
+  // mode most recently wins, and a lost race costs a menu tap, not game
+  // data. (currentGame stays local on purpose: it rewrites on every move
+  // and a mid-deal clobber from another device would be a real loss.)
+  Arcade.state.set('settings', settings, { sync: true });
 }
 
 // ─── Arcade.records — per-variant personal bests (cozy-solitaire#6) ─────────

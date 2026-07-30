@@ -1,5 +1,6 @@
 // cards.js — Card/deck creation, shuffling
 import { SUITS, VALUES, VALUE_ORDER } from './constants.js';
+import { makeRng } from './arcade-rng.js';
 
 export function createCard(suit, value) {
   return {
@@ -22,19 +23,14 @@ export function createDeck() {
   return deck;
 }
 
-// Simple Mulberry32 PRNG for deterministic shuffling
-function mulberry32(a) {
-  return function() {
-    var t = a += 0x6D2B79F5;
-    t = Math.imul(t ^ t >>> 15, t | 1);
-    t ^= t + Math.imul(t ^ t >>> 7, t | 61);
-    return ((t ^ t >>> 14) >>> 0) / 4294967296;
-  }
-}
-
+// Deterministic shuffling rides the fleet's shared rng companion (vendored
+// byte-identical copy of the launcher's /arcade-rng.js — see its header).
+// Streams are bit-identical to the old inline mulberry32 for the integer
+// seeds this game uses, so existing deal seeds reproduce exactly; the `>>> 0`
+// preserves the numeric-seed contract (makeRng hashes non-numbers instead).
 export function shuffleDeck(deck, seed) {
   const d = [...deck];
-  const rng = seed !== undefined ? mulberry32(seed) : Math.random;
+  const rng = seed !== undefined ? makeRng(seed >>> 0) : Math.random;
   for (let i = d.length - 1; i > 0; i--) {
     const j = Math.floor(rng() * (i + 1));
     [d[i], d[j]] = [d[j], d[i]];
