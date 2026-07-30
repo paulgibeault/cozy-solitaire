@@ -36,6 +36,15 @@ async function run() {
   const ids = new Set(deck.map(c => c.id));
   assert(ids.size === 52, 'No duplicate cards');
 
+  // Seeded shuffle known-answer vector — pins the ALGORITHM: shuffleDeck now
+  // rides the vendored fleet companion (js/arcade-rng.js), and this exact
+  // order is what the pre-migration inline mulberry32 dealt for seed 42. If
+  // either file drifts, existing deal seeds silently stop reproducing; this
+  // fails instead.
+  const kat = shuffleDeck(deck, 42).slice(0, 8).map(c => c.id).join(',');
+  assert(kat === '3♣,9♣,2♥,K♥,K♣,9♦,7♠,J♣',
+    `Seeded shuffle matches the pinned known-answer order (got ${kat})`);
+
   // Shuffle produces different order
   const shuffled = shuffleDeck(deck);
   assert(shuffled.length === 52, 'Shuffled deck has 52 cards');

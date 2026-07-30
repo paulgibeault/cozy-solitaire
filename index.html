@@ -157,5 +157,20 @@
 
   <canvas id="game"></canvas>
   <script type="module" src="js/main.js?v=5"></script>
+  <script>
+  // Offline support (fleet SW standard — see sw.js's header). The loopback
+  // guard keeps local-dev edits from being masked by stale cache, matching
+  // the launcher's own behavior. Fire-and-forget with a .catch: inside a
+  // launcher frame the SDK shims navigator.serviceWorker with an inert stub
+  // whose register() rejects.
+  if ('serviceWorker' in navigator &&
+      !/^(127\.|localhost$|0\.0\.0\.0$|::1$)/.test(location.hostname)) {
+    window.addEventListener('load', function () {
+      navigator.serviceWorker
+        .register('sw.js', { scope: '/cozy-solitaire/' })
+        .catch(function () {}); // offline just won't work; the game still does
+    });
+  }
+  </script>
 </body>
 </html>
