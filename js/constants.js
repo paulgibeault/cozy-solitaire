@@ -52,7 +52,6 @@ export const SUIT_FONT_RATIO = 0.22;
 export const CENTER_SUIT_RATIO = 0.55;
 
 // Animation
-export const TWEEN_DURATION = 200;
 export const DEAL_DURATION = 80;
 export const AUTO_COMPLETE_DELAY = 100;
 export const BOUNCE_OVERSHOOT = 1.15;

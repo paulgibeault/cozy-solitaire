@@ -4,7 +4,6 @@ import { initRenderer, recalcLayout, getLayout, clear, drawCardBack, drawCardFac
   spawnWinParticles, updateAndDrawParticles, drawSquashedLabel, drawPeekOverlay,
   setCollapseRuns } from './renderer.js';
 import { initInput, getDragState } from './input.js';
-import { updateTweens, hasTweens } from './tween.js';
 import { createGameState, dealStock, moveCards, isWon, allCardsFaceUp, getAutoCompleteCard, undo, undoTo, canRecycleStock,
   serializeState, deserializeState, GameRules } from './game.js';
 import { loadStats, updateStats, saveGameState, loadGameState, clearGameState,
@@ -48,7 +47,7 @@ let showStats = false;
 let showModeSelect = false;
 let overlayJustOpened = false; // prevents same-click close when an overlay is first shown
 let lastTime = 0;
-let rafId = null;        // current requestAnimationFrame handle
+let frameLoop = null;    // SDK-managed rAF loop (created at init)
 let dirty = true;        // true = frame needs to be drawn
 let lastTimerSec = -1;   // last rendered timer second, for detecting changes
 // The deal flourish is for a game the player asked for. init() deals one too,
@@ -173,11 +172,16 @@ function init() {
     onOverlayClosed: () => { markDirty(); }
   });
 
-  // Lifecycle: pause the rAF loop when the launcher hides this iframe.
-  // Arcade.onSuspend covers both quit-to-launcher and tab/window hide, so
-  // a separate visibilitychange handler is no longer needed.
+  // The SDK owns the frame loop. Every canvas game used to hand-wire "cancel
+  // on suspend, re-request on resume" and the fleet got a different leg of it
+  // wrong in each repo; Arcade.loop owns that, and suspended time never shows
+  // up in a delta.
+  frameLoop = Arcade.loop(loop);
+
+  // Lifecycle: the launcher hides this iframe on quit and on tab/window hide.
   Arcade.onSuspend(() => {
-    if (rafId !== null) { cancelAnimationFrame(rafId); rafId = null; }
+    // The frame loop is not cancelled here — Arcade.loop parks itself on
+    // suspend and re-arms on resume if it was running.
     if (state) saveGameState(serializeState(state));
     stopClockTick();
   });
@@ -485,10 +489,11 @@ function moveFromHit(from, toZoneId) {
   }
 }
 
+// One frame on demand. This is a dirty-flag renderer — normally parked, woken
+// by input — which is exactly what loop.kick() is for; start()/stop() below
+// switch it to continuous only while something is actually moving.
 function scheduleFrame() {
-  if (rafId === null) {
-    rafId = requestAnimationFrame(loop);
-  }
+  if (frameLoop && !frameLoop.running()) frameLoop.kick();
 }
 
 function markDirty() {
@@ -496,8 +501,9 @@ function markDirty() {
   scheduleFrame();
 }
 
-function loop(timestamp) {
-  rafId = null;
+// Arcade.loop passes (deltaMs, timestamp); the local dt is kept because it
+// carries this game's own 16 ms first-frame default.
+function loop(_deltaMs, timestamp) {
   const dt = lastTime ? timestamp - lastTime : 16;
   lastTime = timestamp;
 
@@ -551,10 +557,6 @@ function loop(timestamp) {
     scheduleFrame(); // keep loop alive during auto-complete
   }
 
-  const tweensActive = hasTweens();
-  updateTweens(dt);
-  if (tweensActive) dirty = true;
-
   // Win particles need continuous updates
   if (state.won) dirty = true;
 
@@ -567,10 +569,11 @@ function loop(timestamp) {
     render(dt);
   }
 
-  // Re-schedule only if something ongoing needs continuous frames
-  if (autoCompleting || tweensActive || state.won || dragActive) {
-    scheduleFrame();
-  }
+  // Run continuously only while something is genuinely animating; otherwise
+  // park and wait for the next markDirty(). stop() is what keeps an idle
+  // solitaire board off the scheduler entirely.
+  if (autoCompleting || state.won || dragActive) frameLoop.start();
+  else frameLoop.stop();
 }
 
 function render(dt) {
