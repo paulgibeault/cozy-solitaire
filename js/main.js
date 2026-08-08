@@ -1,8 +1,8 @@
 // main.js — Entry point, game loop, state machine
 import { initRenderer, recalcLayout, getLayout, clear, drawCardBack, drawCardFace,
   drawEmptyPile, drawHighlight, drawText, getCardPosition, drawButton, getCtx,
-  spawnWinParticles, updateAndDrawParticles, drawSquashedLabel, drawPeekOverlay,
-  setCollapseRuns } from './renderer.js';
+  spawnWinParticles, updateAndDrawParticles, hasWinParticles, drawSettledConfetti,
+  drawSquashedLabel, drawPeekOverlay, setCollapseRuns } from './renderer.js';
 import { initInput, getDragState } from './input.js';
 import { createGameState, dealStock, moveCards, isWon, allCardsFaceUp, getAutoCompleteCard, undo, undoTo, canRecycleStock,
   serializeState, deserializeState, GameRules } from './game.js';
@@ -14,7 +14,7 @@ import { playPlace, playFoundation, playFlip, playLift, playRunPlace, playInvali
 import { TABLEAU_COLS, FOUNDATION_COUNT, AUTO_COMPLETE_DELAY, COLORS,
   DRAW_MODES, RECYCLE_MODES, SPIDER_MODES, VARIANTS } from './constants.js';
 import { UI } from './ui.js';
-import { inRect, parseSeed } from './utils.js';
+import { inRect, parseSeed, isPowerSaving } from './utils.js';
 
 // Wait for the Arcade launcher handshake (or standalone resolve) before
 // touching state — settings hydrate synchronously, but framed/peer status
@@ -49,7 +49,6 @@ let overlayJustOpened = false; // prevents same-click close when an overlay is f
 let lastTime = 0;
 let frameLoop = null;    // SDK-managed rAF loop (created at init)
 let dirty = true;        // true = frame needs to be drawn
-let lastTimerSec = -1;   // last rendered timer second, for detecting changes
 // The deal flourish is for a game the player asked for. init() deals one too,
 // and a page that makes a noise on load is both startling and the thing
 // browser autoplay policy exists to stop, so boot stays silent.
@@ -73,19 +72,49 @@ function updateTimerState() {
   if (timerShouldRun()) _timer.resume(); else _timer.pause();
 }
 
+// Cached power-saver state, refreshed from Arcade.onSettingsChange. Read
+// through isPowerSaving() so a pre-3.13 SDK degrades instead of throwing.
+let powerSaving = isPowerSaving();
+
 // The rAF loop only self-reschedules while something is animating (see
 // loop()'s tail), so it goes fully idle while the player is just thinking —
-// elapsed keeps accruing in _timer, but the header clock freezes until the
-// next interaction. This 1Hz tick nudges a frame through so the displayed
-// time stays live; it only runs while framed/foregrounded (started/stopped
-// alongside Arcade.onResume/onSuspend).
-let clockTickId = null;
+// elapsed keeps accruing in _timer, but the displayed clock would freeze
+// until the next interaction. This 1 Hz tick keeps it live.
+//
+// It rewrites the header directly instead of calling markDirty(). The clock
+// is HTML, not canvas, so a canvas frame was never needed to move it — and
+// §6d asks for 0 fps on an idle board, which a once-a-second full repaint of
+// the felt is not. Nothing drawn on the canvas depends on elapsed seconds
+// while a game is in play (the win panel's time is written once, after the
+// timer has stopped).
+//
+// The interval rides Arcade.session.setInterval, which freezes with a
+// suspended frame and re-arms on resume, so a hidden iframe stops waking the
+// page (§6c) — guarded, because the managed variants only exist from SDK
+// 3.13.0 and a stale cached SDK is a real state for this page.
+//
+// Under power saver the tick doesn't run at all: a ticking clock is a 1 Hz
+// wake-up on a board where nothing is happening. Elapsed still accrues in
+// _timer and the header is rewritten by every render, so the clock is exact
+// the moment the player touches anything — it just stops counting up at them
+// while they think.
+let clockTick = null;
+function refreshClock() {
+  if (timerShouldRun()) UI.updateHeader(_timer.elapsedMs(), state.moves);
+}
 function startClockTick() {
-  if (clockTickId !== null) return;
-  clockTickId = setInterval(() => { if (timerShouldRun()) markDirty(); }, 1000);
+  if (clockTick !== null) return;
+  if (powerSaving) return;
+  if (Arcade.session && typeof Arcade.session.setInterval === 'function') {
+    const managed = Arcade.session.setInterval(refreshClock, 1000);
+    clockTick = () => managed.cancel();
+  } else {
+    const id = setInterval(refreshClock, 1000);
+    clockTick = () => clearInterval(id);
+  }
 }
 function stopClockTick() {
-  if (clockTickId !== null) { clearInterval(clockTickId); clockTickId = null; }
+  if (clockTick !== null) { clockTick(); clockTick = null; }
 }
 
 // Transient status toasts. The launcher renders the toast chrome when framed;
@@ -193,8 +222,17 @@ function init() {
   // Launcher imported a save while we were running — reload from fresh state.
   Arcade.onStateReplaced(() => location.reload());
 
-  // Re-render when launcher settings change (font scale, handedness, etc.).
-  Arcade.onSettingsChange(() => markDirty());
+  // Re-render when launcher settings change (font scale, handedness, etc.),
+  // and re-read power saver: toggling it mid-game has to start or stop the
+  // clock tick right away, not at the next new game.
+  Arcade.onSettingsChange(() => {
+    const saving = isPowerSaving();
+    if (saving !== powerSaving) {
+      powerSaving = saving;
+      if (powerSaving) stopClockTick(); else startClockTick();
+    }
+    markDirty();
+  });
 
   // Arcade.onSuspend only fires when framed — standalone (a bare tab) never
   // gets it, so pagehide is the fallback to flush accrued session time and
@@ -507,14 +545,10 @@ function loop(_deltaMs, timestamp) {
   const dt = lastTime ? timestamp - lastTime : 16;
   lastTime = timestamp;
 
-  // Pull elapsed from the suspend-aware tracker; updateTimerState() controls
-  // whether it advances based on win/moves/overlay state.
-  const elapsedMs = _timer.elapsedMs();
-  const currentSec = Math.floor(elapsedMs / 1000);
-  if (currentSec !== lastTimerSec) {
-    lastTimerSec = currentSec;
-    dirty = true;
-  }
+  // The clock no longer drives frames — refreshClock() writes the header
+  // straight to the DOM once a second, and every frame this loop does draw
+  // rewrites it anyway via render(). Marking the canvas dirty on a second
+  // boundary would repaint the whole felt to move two digits of HTML.
 
   // Auto-complete
   if (autoCompleting && !state.won) {
@@ -557,8 +591,11 @@ function loop(_deltaMs, timestamp) {
     scheduleFrame(); // keep loop alive during auto-complete
   }
 
-  // Win particles need continuous updates
-  if (state.won) dirty = true;
+  // Win particles need continuous updates — but only while any are still
+  // alive. A won board with the cascade finished (or never started, under
+  // power saver or reduced motion) is a static screen, and §6d says a static
+  // screen gets no frames.
+  if (state.won && hasWinParticles()) dirty = true;
 
   // Keep loop alive while a drag is in progress
   const dragActive = !!(getDragState() && getDragState().dragging);
@@ -572,7 +609,7 @@ function loop(_deltaMs, timestamp) {
   // Run continuously only while something is genuinely animating; otherwise
   // park and wait for the next markDirty(). stop() is what keeps an idle
   // solitaire board off the scheduler entirely.
-  if (autoCompleting || state.won || dragActive) frameLoop.start();
+  if (autoCompleting || (state.won && hasWinParticles()) || dragActive) frameLoop.start();
   else frameLoop.stop();
 }
 
@@ -680,8 +717,11 @@ function render(dt) {
     }
   }
 
-  // Win screen
+  // Win screen. The settled confetti is drawn first so the cascade falls in
+  // front of it, and it is what remains once the cascade is over — or the
+  // whole of the celebration when the cascade never ran.
   if (state.won) {
+    drawSettledConfetti();
     updateAndDrawParticles(dt);
     drawText(l.w / 2, l.h / 2 - 40, '🎉 You Won! 🎉', 28, 'center');
     drawText(l.w / 2, l.h / 2, `Time: ${Math.floor(_timer.elapsedMs() / 1000)}s  Moves: ${state.moves}`, 18, 'center');
