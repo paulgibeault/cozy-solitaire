@@ -2,6 +2,7 @@ import { COLORS, SUIT_COLORS, CARD_ASPECT, CARD_RADIUS_RATIO, CARD_OVERLAP_FACED
   PILE_GAP_RATIO, TOP_MARGIN_RATIO, FONT_RATIO, SUIT_FONT_RATIO, CENTER_SUIT_RATIO,
   TABLEAU_COLS, FOUNDATION_COUNT, MAX_CARD_W, MAX_CARD_W_PORTRAIT } from './constants.js';
 import { GameRules } from './game.js';
+import { isPowerSaving } from './utils.js';
 
 // Cached setting — updated by main.js via setCollapseRuns() whenever settings change.
 // Avoids calling loadModeSettings() (localStorage + JSON.parse) per card per frame.
@@ -508,16 +509,71 @@ export function drawText(x, y, text, size = 14, align = 'left') {
 
 // Particles for win effect
 const particles = [];
+// Where the cascade lands: a static scatter of the same confetti along the
+// bottom of the board. This is the win's *resting* treatment (§6d) — the
+// cascade is a moment, this is the state, and it costs no frames because the
+// renderer is dirty-flagged. Stored as fractions of the layout so a resize
+// keeps it in place.
+const settledConfetti = [];
+
+function winColors() {
+  return [COLORS.winParticle1, COLORS.winParticle2, COLORS.winParticle3];
+}
+
+function spawnSettledConfetti() {
+  settledConfetti.length = 0;
+  const colors = winColors();
+  for (let i = 0; i < 32; i++) {
+    settledConfetti.push({
+      fx: Math.random(),
+      fy: 0.82 + Math.random() * 0.15,
+      color: colors[Math.floor(Math.random() * colors.length)],
+      size: 3 + Math.random() * 4,
+      alpha: 0.55 + Math.random() * 0.35,
+    });
+  }
+}
+
+// The static half of the win screen. Drawn on every won frame, including the
+// very first one, so a suppressed cascade still lands somewhere.
+export function drawSettledConfetti() {
+  if (settledConfetti.length === 0) spawnSettledConfetti();
+  for (const c of settledConfetti) {
+    ctx.globalAlpha = c.alpha;
+    ctx.fillStyle = c.color;
+    ctx.beginPath();
+    ctx.arc(c.fx * layout.w, c.fy * layout.h, c.size, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+// True while the cascade is still moving. main.js uses this to decide whether
+// the frame loop keeps running: once the last particle dies the win screen is
+// static and the loop parks (§6d — visible but idle must reach 0 fps).
+export function hasWinParticles() {
+  return particles.length > 0;
+}
 
 export function spawnWinParticles() {
   // Remove any leftover particles from a previous win animation
   particles.length = 0;
+  // The confetti settles into place whether or not the cascade that scatters
+  // it actually runs.
+  spawnSettledConfetti();
   // Honor the launcher's reduced-motion preference — skip the celebratory
   // burst entirely, the win text overlay is enough to confirm the state.
   if (typeof Arcade !== 'undefined' && Arcade.settings && Arcade.settings.reducedMotion()) {
     return;
   }
-  const colors = [COLORS.winParticle1, COLORS.winParticle2, COLORS.winParticle3];
+  // Power saver (§5/§6d): the cascade is 80 particles under gravity for ~3 s
+  // of continuous compositing. It's a reward, not decoration, so what's
+  // dropped is the *motion*, not the celebration — the win panel, the settled
+  // confetti and the win cue all still fire.
+  if (isPowerSaving()) {
+    return;
+  }
+  const colors = winColors();
   for (let i = 0; i < 80; i++) {
     particles.push({
       x: layout.w / 2,

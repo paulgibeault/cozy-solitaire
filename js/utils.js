@@ -1,6 +1,21 @@
 // utils.js — Shared utility functions
 
 /**
+ * The launcher's power-saver preference (GAME_INTEGRATION §5/§6d).
+ *
+ * Read defensively: `Arcade.settings.powerSaver` only exists from SDK 3.13.0,
+ * and on anything older the call throws — inside an onSettingsChange handler
+ * that would be a throw on every launcher settings write, not just at startup.
+ * A pre-3.13 SDK (or a standalone page with no SDK at all) degrades to "not
+ * saving", which is the old behaviour exactly.
+ * @returns {boolean}
+ */
+export function isPowerSaving() {
+  if (typeof Arcade === 'undefined' || !Arcade.settings) return false;
+  return Arcade.settings.powerSaver ? Arcade.settings.powerSaver() : false;
+}
+
+/**
  * Returns true if point (px, py) lies within the rectangle
  * starting at (rx, ry) with dimensions (rw × rh).
  */
