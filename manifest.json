@@ -3,7 +3,7 @@
   "short_name": "Solitaire",
   "description": "A warm, cozy Klondike Solitaire game",
   "scope": "/cozy-solitaire/",
-  "start_url": "./index.html?v=1.0.4",
+  "start_url": "./index.html?v=1.0.5",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#2d5a3d",
