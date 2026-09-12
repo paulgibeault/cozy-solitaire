@@ -20,13 +20,24 @@ let canvas, ctx;
 let layout = {};
 let lastCacheKey = '';
 
+// Called when a lazily-loaded asset (watermark, card-back logo) arrives.
+// This is a dirty-flag renderer, so without it the first frame — drawn
+// before the SVGs decode — stayed on screen logo-less until the player's
+// first move. main.js wires it to markDirty().
+let onAssetLoaded = null;
+export function setOnAssetLoaded(fn) { onAssetLoaded = fn; }
+function assetArrived() {
+  invalidateCardBackCache();
+  if (onAssetLoaded) onAssetLoaded();
+}
+
 // Felt watermark — pure-path SVG, loaded once
 let logoImg = null;
 let logoLoaded = false;
 function ensureLogoLoaded() {
   if (logoImg) return;
   logoImg = new Image();
-  logoImg.onload = () => { logoLoaded = true; invalidateCardBackCache(); };
+  logoImg.onload = () => { logoLoaded = true; assetArrived(); };
   logoImg.onerror = (e) => { console.warn('Watermark SVG failed to load', e); };
   logoImg.src = 'logo_watermark.svg';
 }
@@ -37,7 +48,7 @@ let cardLogoLoaded = false;
 function ensureCardLogoLoaded() {
   if (cardLogoImg) return;
   cardLogoImg = new Image();
-  cardLogoImg.onload = () => { cardLogoLoaded = true; invalidateCardBackCache(); };
+  cardLogoImg.onload = () => { cardLogoLoaded = true; assetArrived(); };
   cardLogoImg.onerror = (e) => { console.warn('Card logo SVG failed to load', e); };
   cardLogoImg.src = 'logo.svg';
 }
@@ -132,6 +143,11 @@ function _roundRectPath(cx, x, y, w, h, r) {
 export function initRenderer(c) {
   canvas = c;
   ctx = canvas.getContext('2d');
+  // Kick both SVG loads now. The felt watermark used to start from clear(),
+  // but nothing ever asked for the card-back logo, so backs shipped
+  // crosshatch-only.
+  ensureLogoLoaded();
+  ensureCardLogoLoaded();
   recalcLayout();
 }
 
@@ -186,8 +202,12 @@ export function recalcLayout() {
   const isLandscape = w > h;
 
   const cols = totalCols;
-  let paddingX = isLandscape ? 20 : 10;
-  let cardW = (w - (paddingX * 2) - ((cols - 1) * 10)) / cols;
+  // Portrait is width-bound (seven to ten columns across a phone), so the
+  // gutters are what the cards are paid out of: tighter gaps buy ~10% more
+  // card on a 390px phone, and more for Spider's ten columns.
+  const paddingX = isLandscape ? 20 : 6;
+  const colGap = isLandscape ? 10 : 6;
+  let cardW = (w - (paddingX * 2) - ((cols - 1) * colGap)) / cols;
 
   if (isLandscape && cardW > MAX_CARD_W) cardW = MAX_CARD_W;
   if (!isLandscape && cardW > MAX_CARD_W_PORTRAIT) cardW = MAX_CARD_W_PORTRAIT;
@@ -197,7 +217,7 @@ export function recalcLayout() {
   const overlapDown = cardH * CARD_OVERLAP_FACEUP;
   const overlapRight = cardW * 0.20;
 
-  let totalW = (cols * cardW) + ((cols - 1) * 10);
+  let totalW = (cols * cardW) + ((cols - 1) * colGap);
   let startX = (w - totalW) / 2;
 
   // For portrait, we might need smaller top margin
@@ -222,7 +242,7 @@ export function recalcLayout() {
         const gx = zone.config.gridX || 0;
         const gy = zone.config.gridY || 0;
 
-        const x = startX + (gx * (cardW + 10));
+        const x = startX + (gx * (cardW + colGap));
         let y = topMargin + (gy * rowSpacing);
 
         layout.zones.set(id, { x, y });
@@ -470,6 +490,21 @@ export function drawHighlight(x, y) {
   roundRect(x, y, cardW, cardH, radius);
   ctx.strokeStyle = 'rgba(144,238,144,0.6)';
   ctx.lineWidth = 2;
+  ctx.stroke();
+}
+
+// The hint's two halves: a gold wash over the card(s) to move, a green one
+// where they go. Static by design (§6d) — it is a pointer, not a pulse.
+export function drawHintOutline(x, y, h, kind = 'source') {
+  const { cardW, radius } = layout;
+  const pad = 3;
+  const target = kind === 'target';
+  roundRect(x - pad, y - pad, cardW + pad * 2, h + pad * 2, radius + pad);
+  ctx.fillStyle = target ? COLORS.validDrop : 'rgba(255,215,0,0.18)';
+  ctx.fill();
+  roundRect(x - pad, y - pad, cardW + pad * 2, h + pad * 2, radius + pad);
+  ctx.strokeStyle = target ? 'rgba(144,238,144,0.9)' : 'rgba(255,215,0,0.9)';
+  ctx.lineWidth = 3;
   ctx.stroke();
 }
 

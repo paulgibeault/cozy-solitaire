@@ -1,6 +1,6 @@
 import { test, describe, afterEach } from "node:test";
 import assert from "node:assert";
-import { isPowerSaving, parseSeed } from "../js/utils.js";
+import { isPowerSaving, parseSeed, formatTime } from "../js/utils.js";
 
 describe("isPowerSaving — the guarded settings read", () => {
   afterEach(() => { delete globalThis.Arcade; });
@@ -36,5 +36,21 @@ describe("parseSeed", () => {
     assert.strictEqual(parseSeed("0"), 1);
     assert.strictEqual(parseSeed("42"), 42);
     assert.strictEqual(parseSeed("1000000"), 999999);
+  });
+});
+
+describe("formatTime", () => {
+  test("reads as a clock, never as raw seconds", () => {
+    assert.strictEqual(formatTime(0), "0:00");
+    assert.strictEqual(formatTime(999), "0:00");
+    assert.strictEqual(formatTime(61_000), "1:01");
+    assert.strictEqual(formatTime(754_300), "12:34");
+    assert.strictEqual(formatTime(3_600_000), "1:00:00");
+  });
+
+  test("shrugs at junk", () => {
+    assert.strictEqual(formatTime(-5000), "0:00");
+    assert.strictEqual(formatTime(NaN), "0:00");
+    assert.strictEqual(formatTime(undefined), "0:00");
   });
 });

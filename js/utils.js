@@ -35,3 +35,19 @@ export function parseSeed(val) {
   if (isNaN(n)) return undefined;
   return Math.max(1, Math.min(999999, n));
 }
+
+/**
+ * Formats a duration in milliseconds as m:ss (or h:mm:ss past an hour).
+ * Negative, NaN and non-numeric input all read as 0:00.
+ * @param {number} ms
+ * @returns {string}
+ */
+export function formatTime(ms) {
+  const total = Math.max(0, Math.floor((Number(ms) || 0) / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const mm = String(m).padStart(2, '0');
+  const ss = String(s).padStart(2, '0');
+  return h > 0 ? `${h}:${mm}:${ss}` : `${m}:${ss}`;
+}
