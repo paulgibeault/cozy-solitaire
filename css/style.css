@@ -28,6 +28,10 @@ canvas {
   top: 0;
   left: 0;
   width: 100%;
+  /* Full viewport, not just the header: the corner buttons, the seed label
+     and the centred help modal all position against this box. Without the
+     height they all anchored to a 40px strip and landed in the header. */
+  height: 100%;
   pointer-events: none; /* Let clicks pass through except on active UI */
   z-index: 100;
 }
@@ -84,9 +88,33 @@ canvas {
 }
 
 #header-stats {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   font-family: Georgia, serif;
   font-size: 0.9375rem;
   color: #c0a870;
+}
+
+.header-icon-btn {
+  background: none;
+  border: 1px solid rgba(192, 168, 112, 0.4);
+  border-radius: 50%;
+  width: 26px;
+  height: 26px;
+  color: #ede2c8;
+  font-family: Georgia, serif;
+  font-weight: bold;
+  font-size: 0.9375rem;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.8;
+  transition: opacity calc(0.2s * var(--motion-scale, 1)), background calc(0.2s * var(--motion-scale, 1));
+  pointer-events: auto;
+}
+.header-icon-btn:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.1);
 }
 
 /* ─── Edgy Dropdown Selector (Adapted from Heck'n Sic) ────────── */
@@ -174,20 +202,31 @@ canvas {
   margin: 12px 0;
 }
 
-/* ─── Floating Undo UI ────────────────────────────────────────── */
-/* Default (right-handed): button anchored to the right edge so the
-   primary thumb can reach it. [data-handedness="left"] flips to left. */
-#undo-wrapper {
+/* ─── Floating corner buttons ─────────────────────────────────── */
+/* Undo sits bottom-left, Hint bottom-right. [data-handedness="left"]
+   (launcher setting) mirrors the pair so the thumb-side button swaps. */
+.corner-wrapper {
   position: absolute;
   bottom: 16px;
-  right: 16px;
   z-index: 500;
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
   pointer-events: none;
 }
+#undo-wrapper {
+  left: 16px;
+  align-items: flex-start;
+}
+#hint-wrapper {
+  right: 16px;
+  align-items: flex-end;
+}
 html[data-handedness="left"] #undo-wrapper {
+  left: auto;
+  right: 16px;
+  align-items: flex-end;
+}
+html[data-handedness="left"] #hint-wrapper {
   right: auto;
   left: 16px;
   align-items: flex-start;
@@ -220,7 +259,7 @@ html[data-handedness="left"] #undo-wrapper {
 .undo-dropdown {
   position: absolute;
   bottom: 60px; /* Above the button */
-  right: 0;
+  left: 0;
   background: rgba(30, 41, 33, 0.95);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
@@ -235,13 +274,13 @@ html[data-handedness="left"] #undo-wrapper {
   transform: translateY(0);
   transition: opacity calc(0.2s * var(--motion-scale, 1)) cubic-bezier(0.175, 0.885, 0.32, 1.275),
               transform calc(0.2s * var(--motion-scale, 1)) cubic-bezier(0.175, 0.885, 0.32, 1.275);
-  transform-origin: bottom right;
+  transform-origin: bottom left;
   pointer-events: auto;
 }
 html[data-handedness="left"] .undo-dropdown {
-  right: auto;
-  left: 0;
-  transform-origin: bottom left;
+  left: auto;
+  right: 0;
+  transform-origin: bottom right;
 }
 
 .undo-dropdown.hidden {
@@ -267,8 +306,9 @@ html[data-handedness="left"] .undo-dropdown {
 
 .seed-label {
   position: absolute;
-  bottom: 24px;
-  right: 24px;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
   font-family: monospace;
   font-size: 0.6875rem;
   color: rgba(192, 168, 112, 0.6);
@@ -360,6 +400,27 @@ html[data-handedness="left"] .undo-dropdown {
   flex-direction: column;
   gap: 12px;
   margin-bottom: 20px;
+}
+
+.help-subhead {
+  color: #c0a870;
+  font-size: 0.9375rem;
+  margin-top: 4px;
+}
+.help-list {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+kbd {
+  font-family: monospace;
+  font-size: 0.75rem;
+  padding: 1px 5px;
+  border: 1px solid rgba(192, 168, 112, 0.5);
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.25);
 }
 
 #btn-close-help {

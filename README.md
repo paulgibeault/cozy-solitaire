@@ -15,7 +15,9 @@ A warm, grandma-friendly Solitaire game built with vanilla JavaScript and HTML5 
 - **Game Variants** — Includes classic Klondike, FreeCell, and Spider Solitaire
 - **Menu System** — Unified dropdown menu to switch games, view stats, and access settings
 - **Unlimited undo** — Never get stuck, undo all the way back to the start
-- **Touch & mouse** — drag-and-drop, tap-to-auto-move, double-tap to foundation
+- **Touch & mouse** — drag-and-drop, tap-to-move (foundation first, then the spot that uncovers the most), long-press to peek at a column
+- **Hints** — the 💡 button (or `H`) points at a move, or at the stock when that is all that's left
+- **Card flights** — moves, deals and auto-complete animate; honours reduced motion and power saver
 - **Auto-complete** — when all cards are face up, cards fly to foundations
 - **Statistics** — games played, won, streaks, best time
 - **Cozy theme** — warm browns, soft greens, cream cards, cabin vibes (a single fixed palette — no theme switching)
@@ -44,7 +46,8 @@ The game features a streamlined dropdown menu accessible from the header. From h
 ## Undo Feature
 
 Made a mistake? Cozy Solitaire includes **Unlimited Undo**. 
-- Click or tap the Undo button to reverse your last action.
+- Click or tap the Undo button (bottom-left; bottom-right for left-handed players) or press `Z` to reverse your last action.
+- Hold the button to open the move history and jump straight back to any earlier point.
 - You can continuously undo moves, all the way back to the initial deal, allowing you to try different strategies without any penalty.
 
 ## Play
@@ -60,13 +63,16 @@ Open `http://localhost:8000` on your phone or browser.
 
 ## Controls
 
-| Action | Mouse | Touch |
+| Action | Mouse / keyboard | Touch |
 |--------|-------|-------|
 | Move card | Drag & drop | Drag & drop |
-| Auto-move | Click card | Tap card |
-| Send to foundation | Double-click | Double-tap |
+| Move to best spot | Click card | Tap card |
+| Peek at a column | Long-press | Long-press |
 | Deal from stock | Click stock pile | Tap stock pile |
-| Undo | Click Undo button | Tap Undo button |
+| Hint | Click 💡 or press `H` | Tap 💡 |
+| Undo | Click ↶ or press `Z` | Tap ↶ |
+| Undo history | Hold ↶ | Hold ↶ |
+| Close dialogs | `Esc` | Tap outside |
 
 ## Project Structure
 
@@ -83,19 +89,19 @@ cozy-solitaire/
 │   ├── game.js         # Game rules, moves, win detection
 │   ├── renderer.js     # Canvas drawing (cards, piles, effects)
 │   ├── input.js        # Mouse/touch input, drag-and-drop
-│   ├── tween.js        # Animation system
+│   ├── flights.js      # Card-flight animations (moves, deals, auto-complete)
+│   ├── hint.js         # Move ranking: the Hint button and tap-to-move
 │   ├── soundpack.js    # The sound design: room, levels, 13 cue graphs
 │   ├── audio.js        # Registers the pack with Arcade.audio + play wrappers
 │   ├── storage.js      # localStorage persistence + Arcade.records writes
 │   └── rules/          # Per-variant rule modules (klondike, freecell, spider)
-└── tests/
-    └── game.test.js    # Game logic tests
+└── tests/              # game, rules, hint, move-gate, utils, repo gates
 ```
 
 ## Run Tests
 
 ```bash
-node tests/game.test.js
+npm test
 ```
 
 ## Tech

@@ -153,21 +153,33 @@ export function canRecycleStock(state) {
   return state.stockPasses < state.maxPasses;
 }
 
-export function moveCards(state, fromZoneId, cardIndex, toZoneId) {
+// Whether the run starting at cardIndex in fromZoneId may land on toZoneId.
+// The one place for the three-part check (pick up, run length, drop), shared
+// by the mover, the drag highlights and the hint finder so they cannot
+// disagree. Foundations and free cells take exactly one card: every
+// variant's canDrop only looks at the leading card, and before this guard a
+// three-card run whose base fit the foundation went up as a unit.
+export function canMoveRun(state, fromZoneId, cardIndex, toZoneId) {
   const fromZone = state.zones.get(fromZoneId);
   const toZone = state.zones.get(toZoneId);
-
-  if (!fromZone || !toZone) return false;
-  
+  if (!fromZone || !toZone || fromZoneId === toZoneId) return false;
+  if (cardIndex < 0 || cardIndex >= fromZone.cards.length) return false;
   const rules = GameRules[state.variant] || KlondikeRules;
-
-  // Rule verification: Can we pick this up?
   if (!rules.canPickUp(fromZone, cardIndex, state)) return false;
+  const numCards = fromZone.cards.length - cardIndex;
+  if (numCards > 1 && (toZoneId.startsWith('foundation') || toZoneId.startsWith('freecell'))) {
+    return false;
+  }
+  return rules.canDrop(fromZone.cards[cardIndex], toZone, toZoneId, state);
+}
 
+export function moveCards(state, fromZoneId, cardIndex, toZoneId) {
+  if (!canMoveRun(state, fromZoneId, cardIndex, toZoneId)) return false;
+
+  const fromZone = state.zones.get(fromZoneId);
+  const toZone = state.zones.get(toZoneId);
+  const rules = GameRules[state.variant] || KlondikeRules;
   const cardToDrop = fromZone.cards[cardIndex];
-
-  // Rule verification: Can we drop this?
-  if (!rules.canDrop(cardToDrop, toZone, toZoneId, state)) return false;
 
   const numCards = fromZone.cards.length - cardIndex;
   const countStr = numCards > 1 ? ` (${numCards} cards)` : '';

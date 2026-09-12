@@ -113,6 +113,12 @@ export const FreeCellRules = {
         if (this.canPlaceOnFoundation(card, fzone.cards)) return fzone.id;
     }
     if (card.value === 'A') {
+        // The empty piles are labelled ♠ ♥ ♦ ♣; an Ace goes to its own
+        // slot when that one is free, so the board reads the way it is drawn.
+        for (let i = 0; i < 4; i++) {
+            const fzone = zones.get(`foundation-${i}`);
+            if (fzone.isEmpty() && fzone.config && fzone.config.label === card.suit) return fzone.id;
+        }
         for (let i = 0; i < 4; i++) {
             const fzone = zones.get(`foundation-${i}`);
             if (fzone.isEmpty()) return fzone.id;

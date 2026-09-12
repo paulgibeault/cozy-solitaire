@@ -2,10 +2,12 @@
 import { initRenderer, recalcLayout, getLayout, clear, drawCardBack, drawCardFace,
   drawEmptyPile, drawHighlight, drawText, getCardPosition, drawButton, getCtx,
   spawnWinParticles, updateAndDrawParticles, hasWinParticles, drawSettledConfetti,
-  drawSquashedLabel, drawPeekOverlay, setCollapseRuns } from './renderer.js';
+  drawSquashedLabel, drawPeekOverlay, setCollapseRuns, setOnAssetLoaded, drawHintOutline } from './renderer.js';
 import { initInput, getDragState } from './input.js';
-import { createGameState, dealStock, moveCards, isWon, allCardsFaceUp, getAutoCompleteCard, undo, undoTo, canRecycleStock,
+import { createGameState, dealStock, moveCards, canMoveRun, isWon, allCardsFaceUp, getAutoCompleteCard, undo, undoTo, canRecycleStock,
   serializeState, deserializeState, GameRules } from './game.js';
+import { flyCards, isInFlight, updateFlights, drawFlights, clearFlights } from './flights.js';
+import { findHint, bestMoveFor } from './hint.js';
 import { loadStats, updateStats, saveGameState, loadGameState, clearGameState,
   loadModeSettings, saveModeSettings, writeWinRecords, seedRecords } from './storage.js';
 import { playPlace, playFoundation, playFlip, playLift, playRunPlace, playInvalid,
@@ -14,7 +16,7 @@ import { playPlace, playFoundation, playFlip, playLift, playRunPlace, playInvali
 import { TABLEAU_COLS, FOUNDATION_COUNT, AUTO_COMPLETE_DELAY, COLORS,
   DRAW_MODES, RECYCLE_MODES, SPIDER_MODES, VARIANTS } from './constants.js';
 import { UI } from './ui.js';
-import { inRect, parseSeed, isPowerSaving } from './utils.js';
+import { inRect, parseSeed, isPowerSaving, formatTime } from './utils.js';
 
 // Wait for the Arcade launcher handshake (or standalone resolve) before
 // touching state — settings hydrate synchronously, but framed/peer status
@@ -45,6 +47,11 @@ let autoCompleting = false;
 let autoCompleteTimer = 0;
 let showStats = false;
 let showModeSelect = false;
+let lastWinNewBest = false; // the win panel says so until the next deal
+// A tap that moved a card is followed, on touch, by the finger landing again
+// on whatever was underneath. Taps inside this window are ignored so a quick
+// double-tap never moves two cards.
+let lastTapMoveAt = 0;
 let overlayJustOpened = false; // prevents same-click close when an overlay is first shown
 let lastTime = 0;
 let frameLoop = null;    // SDK-managed rAF loop (created at init)
@@ -128,11 +135,65 @@ function toast(message, kind) {
   }
 }
 
+// Card flights are the game's only motion, and they are feedback rather than
+// decoration: a card that visibly travels to the foundation is how a tap
+// explains itself. Reduced motion turns them off; power saver keeps them
+// (a 200 ms flight is a handful of frames) but drops the deal flourish.
+function animate(fn) {
+  if (Arcade.settings.reducedMotion()) return;
+  fn();
+  markDirty();
+}
+
+function drawFlightCard(x, y, card) {
+  if (card.faceUp) drawCardFace(x, y, card); else drawCardBack(x, y);
+}
+
+// Appended to every variant's rules in the help modal — the peek, the undo
+// history and the shortcuts were all undiscoverable before this.
+const CONTROLS_HTML = `
+  <h3 class="help-subhead">Controls</h3>
+  <ul class="help-list">
+    <li><strong>Tap</strong> a card to send it to its best spot, or <strong>drag</strong> it where you like.</li>
+    <li><strong>Long-press</strong> a column to spread it out and read every card.</li>
+    <li><strong>💡</strong> shows a move. <strong>↶</strong> undoes one; hold it to jump further back.</li>
+    <li>Keyboard: <kbd>Z</kbd> undo, <kbd>H</kbd> hint, <kbd>Esc</kbd> close.</li>
+  </ul>`;
+
+// The deal: every tableau card flies in from the stock, row by row like a
+// real deal (or from above the board when the variant has no stock).
+// Decorative, so it is the first thing to go under power saver.
+function dealFlourish() {
+  if (powerSaving) return;
+  animate(() => {
+    const l = getLayout();
+    const stockPos = l.zones.get('stock');
+    const from = stockPos ? { x: stockPos.x, y: stockPos.y }
+                          : { x: l.w / 2 - l.cardW / 2, y: -l.cardH };
+    const cols = state.config ? state.config.layoutCols : 7;
+    let maxRows = 0;
+    for (let i = 0; i < cols; i++) {
+      const z = state.zones.get(`tableau-${i}`);
+      if (z) maxRows = Math.max(maxRows, z.cards.length);
+    }
+    let n = 0;
+    for (let row = 0; row < maxRows; row++) {
+      for (let i = 0; i < cols; i++) {
+        const zone = state.zones.get(`tableau-${i}`);
+        if (!zone || row >= zone.cards.length) continue;
+        flyCards(state, zone.id, row, 1, [from], { duration: 220, delay: n * 22, hideUntilStart: true });
+        n++;
+      }
+    }
+  });
+}
+
 function init() {
   // Seed Arcade.records from legacy stats bests once (records-v1). Idempotent.
   seedRecords();
 
   initRenderer(canvas);
+  setOnAssetLoaded(markDirty);
   initInput(canvas, handleAction, markDirty);
   window.addEventListener('resize', () => { recalcLayout(); markDirty(); });
 
@@ -173,29 +234,38 @@ function init() {
       markDirty();
     },
     onShowHelp: () => {
-      import('./game.js').then(({ GameRules }) => {
-         const variant = modeSettings.variant || 'klondike';
-         const rules = GameRules[variant];
-         if (rules && rules.helpHTML) {
-            UI.showHelpModal(rules.helpHTML);
-         } else {
-            UI.showHelpModal('<p>Rules coming soon.</p>');
-         }
-      });
+      const variant = modeSettings.variant || 'klondike';
+      const rules = GameRules[variant];
+      const rulesHTML = (rules && rules.helpHTML) || '<p>Rules coming soon.</p>';
+      UI.showHelpModal(rulesHTML + CONTROLS_HTML);
+    },
+    onHint: () => {
+      if (!state || state.won || autoCompleting || showStats || showModeSelect) return;
+      const hint = findHint(state);
+      state.hint = hint;
+      if (!hint) toast('No moves left — undo or start a new game', 'warning');
+      else if (hint.stock) toast('Deal from the stock', 'info');
+      markDirty();
+    },
+    onEscape: () => {
+      if (showStats || showModeSelect) {
+        showStats = false;
+        showModeSelect = false;
+        UI.hideSeedInput();
+        updateTimerState();
+      }
+      if (state) { state.peekZoneId = null; state.hint = null; }
+      markDirty();
     },
     getHistory: () => state?.history || [],
     onUndoTo: (index) => {
+      if (!state || state.won || autoCompleting) return;
       undoTo(state, index);
-      playUndo();
-      saveGameState(serializeState(state));
-      markDirty();
+      afterUndo();
     },
     onUndo: () => {
-      if (undo(state)) {
-        playUndo();
-        saveGameState(serializeState(state));
-        markDirty();
-      }
+      if (!state || state.won || autoCompleting || showStats || showModeSelect) return;
+      if (undo(state)) afterUndo();
     },
     onOverlayOpened: () => { overlayJustOpened = true; },
     onOverlayClosed: () => { markDirty(); }
@@ -291,6 +361,8 @@ function newGame(countPrevious = true, seed = undefined) {
   stats = loadStats(getGameTypeKey());
   
   state = createGameState(variant, options, seed);
+  clearFlights();
+  lastWinNewBest = false;
   startTimer({ fresh: true });
   updateSeedDisplay();
   window.__gameState = state;
@@ -301,7 +373,17 @@ function newGame(countPrevious = true, seed = undefined) {
   UI.hideSeedInput();
   clearGameState();
   updateTimerState();
-  if (!booting) playDeal();
+  if (!booting) { playDeal(); dealFlourish(); }
+}
+
+// Undo replaces the zones wholesale, so anything still in the air was
+// pointing at cards that no longer exist.
+function afterUndo() {
+  clearFlights();
+  state.hint = null;
+  playUndo();
+  saveGameState(serializeState(state));
+  markDirty();
 }
 
 function restartGame() {
@@ -315,6 +397,9 @@ function restartGame() {
   state.moves = 0;
   state.won = false;
   state.history = [];
+  state.hint = null;
+  clearFlights();
+  lastWinNewBest = false;
   startTimer({ fresh: true });
   updateTimerState();
   state.stockPasses = 0;
@@ -324,6 +409,7 @@ function restartGame() {
   updateSeedDisplay();
   saveGameState(serializeState(state));
   playDeal();
+  dealFlourish();
 }
 
 function updateSeedDisplay() {
@@ -340,8 +426,20 @@ function handleAction(action) {
   if (state.won) return;
   if (autoCompleting) return;
 
+  // Any touch of the board retires the hint; the next one is a fresh ask.
+  state.hint = null;
+
   switch (action.type) {
     case 'tapStock': {
+      const stockPos = getLayout().zones.get('stock');
+      const waste = state.zones.get('waste');
+      const wasteBefore = waste ? waste.cards.length : 0;
+      const cols = state.config ? state.config.layoutCols : 7;
+      const colsBefore = [];
+      for (let i = 0; i < cols; i++) {
+        const z = state.zones.get(`tableau-${i}`);
+        colsBefore.push(z ? z.cards.length : 0);
+      }
       const dealt = dealStock(state);
       // dealStock returns null when the tap did nothing. Toast only for the
       // pass-limit case (klondike with finite passes and cards left in the
@@ -367,29 +465,36 @@ function handleAction(action) {
         // Spider deals a card onto every column at once, which is a scatter
         // of landings rather than one card into the waste.
         playRunPlace(10);
+        if (stockPos) animate(() => {
+          let k = 0;
+          for (let i = 0; i < cols; i++) {
+            const z = state.zones.get(`tableau-${i}`);
+            // Only columns that actually received a card (a sweep in
+            // afterMove can shorten one on the same tap).
+            if (!z || z.cards.length !== colsBefore[i] + 1) continue;
+            flyCards(state, z.id, z.cards.length - 1, 1, [stockPos], { duration: 200, delay: k * 25 });
+            k++;
+          }
+        });
       } else {
         playPlace();
+        const n = waste ? waste.cards.length - wasteBefore : 0;
+        if (n > 0 && stockPos) animate(() =>
+          flyCards(state, 'waste', waste.cards.length - n, n, Array(n).fill(stockPos), { duration: 180, stagger: 40 }));
       }
       break;
     }
 
     case 'tap': {
+      // Tap-to-move: foundation first, then whatever uncovers or frees the
+      // most, then any legal spot — the same ranking the hint uses, so a tap
+      // never does something the hint would not have suggested.
       const card = getCardFromHit(action);
       if (!card) break;
-      const rules = GameRules[state.variant] || GameRules['klondike'];
-      const fi = rules.findFoundationFor(card, state);
-      if (fi) {
-        moveFromHit(action, fi);
-      } else if (action.sourceZoneId && action.sourceZoneId === 'waste') {
-        const cols = state.config ? state.config.layoutCols : 7;
-        for (let i = 0; i < cols; i++) {
-          const tZone = state.zones.get(`tableau-${i}`);
-          if (tZone && rules.canDrop(card, tZone, tZone.id, state)) {
-            moveFromHit(action, tZone.id);
-            break;
-          }
-        }
-      }
+      if (Date.now() - lastTapMoveAt < 350) break;
+      const idx = action.cardIndex !== undefined ? action.cardIndex : 0;
+      const best = bestMoveFor(state, action.sourceZoneId, idx, { includePointless: true });
+      if (best && moveFromHit(action, best.to)) lastTapMoveAt = Date.now();
       break;
     }
 
@@ -409,9 +514,23 @@ function handleAction(action) {
     }
 
     case 'drop': {
-      if (!action.to) break;
       const { from, to } = action;
-      moveFromHit(from, to.targetZoneId);
+      // Where the cards were drawn under the finger: a legal drop settles
+      // from there into the slot, anything else snaps back home.
+      const offX = from.currentX - from.startX;
+      const offY = from.currentY - from.startY;
+      const idx = from.cardIndex !== undefined ? from.cardIndex : 0;
+      const srcZone = state.zones.get(from.sourceZoneId);
+      const count = srcZone ? srcZone.cards.length - idx : 0;
+      const dragged = [];
+      for (let k = 0; k < count; k++) {
+        const p = getCardPosition(state, from.sourceZoneId, idx + k);
+        dragged.push({ x: p.x + offX, y: p.y + offY });
+      }
+      const moved = to ? moveFromHit(from, to.targetZoneId, dragged) : false;
+      if (!moved && count > 0) {
+        animate(() => flyCards(state, from.sourceZoneId, idx, count, dragged, { duration: 160 }));
+      }
       break;
     }
   }
@@ -453,6 +572,7 @@ function recordWin(timeMs) {
     }
     return next;
   });
+  lastWinNewBest = newBest;
   if (newBest) toast('Best time!', 'success');
 
   // Promote this win to the launcher's per-variant Records (cozy-solitaire#6).
@@ -487,7 +607,10 @@ function foundationTotal() {
   return n;
 }
 
-function moveFromHit(from, toZoneId) {
+// Returns whether the move happened. fromPositions (one {x, y} per moving
+// card) is where the cards were last drawn — supplied by a drag, derived
+// from the layout for a tap — and is where their flight into the slot starts.
+function moveFromHit(from, toZoneId, fromPositions) {
   const idx = from.cardIndex !== undefined ? from.cardIndex : 0;
   // The card that would be newly exposed on the origin pile (moveCards flips it
   // face-up if it was face-down). Captured before the move so we can tell a
@@ -500,13 +623,26 @@ function moveFromHit(from, toZoneId) {
   // the zone: how many travel together, and which card leads them.
   const runCount = fromZone ? fromZone.cards.length - idx : 1;
   const movedCard = fromZone ? fromZone.cards[idx] : null;
+  const movedIds = fromZone ? fromZone.cards.slice(idx).map(c => c.id) : [];
+  const starts = fromPositions || movedIds.map((_, k) => {
+    const p = getCardPosition(state, from.sourceZoneId, idx + k);
+    return { x: p.x, y: p.y };
+  });
   const homeBefore = foundationTotal();
 
   const moved = moveCards(state, from.sourceZoneId, idx, toZoneId);
   if (!moved) {
     playInvalid();
-    return;
+    return false;
   }
+
+  // Fly the cards in — if they are still where we sent them. Spider's
+  // afterMove can sweep a completed run straight on to a foundation.
+  const toZone = state.zones.get(toZoneId);
+  const first = toZone.cards.length - runCount;
+  const landed = first >= 0 && movedIds.every((id, k) =>
+    toZone.cards[first + k] && toZone.cards[first + k].id === id);
+  if (landed) animate(() => flyCards(state, toZoneId, first, runCount, starts));
 
   // One cue per move, most-significant wins — two cues from the same handler
   // land on top of each other and both get lost.
@@ -525,6 +661,7 @@ function moveFromHit(from, toZoneId) {
   } else {
     playPlace();
   }
+  return true;
 }
 
 // One frame on demand. This is a dirty-flag renderer — normally parked, woken
@@ -565,7 +702,13 @@ function loop(_deltaMs, timestamp) {
             const acIdx = ac.cardIndex !== undefined ? ac.cardIndex : 0;
             const acZone = state.zones.get(ac.sourceZoneId);
             const acCard = acZone ? acZone.cards[acIdx] : null;
+            const acFrom = getCardPosition(state, ac.sourceZoneId, acIdx);
             moveCards(state, ac.sourceZoneId, acIdx, ac.targetZoneId);
+            if (!reducedMotion) {
+              const tz = state.zones.get(ac.targetZoneId);
+              flyCards(state, ac.targetZoneId, tz.cards.length - 1, 1,
+                [{ x: acFrom.x, y: acFrom.y }], { duration: 220 });
+            }
             // Cascade tick on the paced auto-complete; skip in reduced-motion,
             // which drains every remaining card in this single tick (A7 — no
             // burst of simultaneous cues). The rank puts each tick on the
@@ -597,6 +740,10 @@ function loop(_deltaMs, timestamp) {
   // screen gets no frames.
   if (state.won && hasWinParticles()) dirty = true;
 
+  // Cards in the air — the only motion an idle board ever has, and it ends.
+  const flying = updateFlights();
+  if (flying) dirty = true;
+
   // Keep loop alive while a drag is in progress
   const dragActive = !!(getDragState() && getDragState().dragging);
   if (dragActive) dirty = true;
@@ -609,7 +756,7 @@ function loop(_deltaMs, timestamp) {
   // Run continuously only while something is genuinely animating; otherwise
   // park and wait for the next markDirty(). stop() is what keeps an idle
   // solitaire board off the scheduler entirely.
-  if (autoCompleting || (state.won && hasWinParticles()) || dragActive) frameLoop.start();
+  if (autoCompleting || (state.won && hasWinParticles()) || dragActive || flying) frameLoop.start();
   else frameLoop.stop();
 }
 
@@ -654,8 +801,9 @@ function render(dt) {
                if (zone.type === 'fanDown' || i === drag.cardIndex) continue;
             }
 
-            const cPos = getCardPosition(state, zoneId, i);
             const card = zone.cards[i];
+            if (isInFlight(zoneId, card.id)) continue; // drawn by drawFlights below
+            const cPos = getCardPosition(state, zoneId, i);
 
              // Special Waste Fanning rule (Draw 3)
             if (zone.type === 'fanRightLimited') {
@@ -681,24 +829,27 @@ function render(dt) {
     }
   }
 
+  // Hint: the cards to move and where they go
+  if (state.hint && !(drag && drag.dragging)) drawHint(l);
+
   // Drop zone highlights during drag
   if (drag && drag.dragging && modeSettings.showHints) {
-    const card = getCardFromHit(drag);
-    if (card) {
-       const rules = GameRules[state.variant] || GameRules['klondike'];
-       for (const [zoneId, zone] of state.zones.entries()) {
-           if (rules.canDrop(card, zone, zoneId, state)) {
-               const pos = l.zones.get(zoneId);
-               if (zone.isEmpty() || zone.type !== 'fanDown') {
-                  drawHighlight(pos.x, pos.y);
-               } else {
-                  const lastC = getCardPosition(state, zoneId, zone.cards.length - 1);
-                  drawHighlight(lastC.x, lastC.y);
-               }
-           }
-       }
+    const dragIdx = drag.cardIndex !== undefined ? drag.cardIndex : 0;
+    for (const [zoneId, zone] of state.zones.entries()) {
+        if (canMoveRun(state, drag.sourceZoneId, dragIdx, zoneId)) {
+            const pos = l.zones.get(zoneId);
+            if (zone.isEmpty() || zone.type !== 'fanDown') {
+               drawHighlight(pos.x, pos.y);
+            } else {
+               const lastC = getCardPosition(state, zoneId, zone.cards.length - 1);
+               drawHighlight(lastC.x, lastC.y);
+            }
+        }
     }
   }
+
+  // Cards in the air, above the settled board and below the finger
+  drawFlights(drawFlightCard);
 
   // Draw dragged cards on top
   if (drag && drag.dragging && !drag.isPeekHit) {
@@ -723,9 +874,13 @@ function render(dt) {
   if (state.won) {
     drawSettledConfetti();
     updateAndDrawParticles(dt);
-    drawText(l.w / 2, l.h / 2 - 40, '🎉 You Won! 🎉', 28, 'center');
-    drawText(l.w / 2, l.h / 2, `Time: ${Math.floor(_timer.elapsedMs() / 1000)}s  Moves: ${state.moves}`, 18, 'center');
-    drawButton(l.w / 2 - 50, l.h / 2 + 30, 100, 36, 'New Game', 14);
+    const wr = winPanelRect(l);
+    drawModalBox(l.w / 2, wr.y + wr.h / 2, wr.w, wr.h);
+    drawText(l.w / 2, wr.y + 38, '🎉 You Won! 🎉', 26, 'center');
+    drawText(l.w / 2, wr.y + 72, `${formatTime(_timer.elapsedMs())}  ·  ${state.moves} moves`, 17, 'center');
+    if (lastWinNewBest) drawText(l.w / 2, wr.y + 98, '★ New best time!', 14, 'center');
+    const b = winButtonRect(l);
+    drawButton(b.x, b.y, b.w, b.h, 'Play Again', 15);
   }
 
   // Peek Overlay
@@ -738,6 +893,40 @@ function render(dt) {
 
   // Mode select overlay
   if (showModeSelect) drawModeOverlay(l);
+}
+
+// The win panel and its button, shared by the renderer and the click test.
+function winPanelRect(l) {
+  const w = Math.min(300, l.w - 40);
+  const h = 180;
+  return { x: l.w / 2 - w / 2, y: l.h / 2 - h / 2, w, h };
+}
+function winButtonRect(l) {
+  const wr = winPanelRect(l);
+  return { x: l.w / 2 - 70, y: wr.y + wr.h - 62, w: 140, h: 44 };
+}
+
+function drawHint(l) {
+  const h = state.hint;
+  if (h.stock) {
+    const p = l.zones.get('stock');
+    if (p) drawHintOutline(p.x, p.y, l.cardH, 'source');
+    return;
+  }
+  const src = state.zones.get(h.from.zoneId);
+  if (!src || !src.cards[h.from.cardIndex]) return;
+  const top = getCardPosition(state, h.from.zoneId, h.from.cardIndex);
+  const last = getCardPosition(state, h.from.zoneId, src.cards.length - 1);
+  drawHintOutline(top.x, top.y, (last.y - top.y) + l.cardH, 'source');
+  const dst = state.zones.get(h.to);
+  const dpos = l.zones.get(h.to);
+  if (!dst || !dpos) return;
+  if (dst.isEmpty() || dst.type !== 'fanDown') {
+    drawHintOutline(dpos.x, dpos.y, l.cardH, 'target');
+  } else {
+    const t = getCardPosition(state, h.to, dst.cards.length - 1);
+    drawHintOutline(t.x, t.y, l.cardH, 'target');
+  }
 }
 
 function drawModalBox(cx, cy, w, h) {
@@ -826,7 +1015,7 @@ function drawStatsOverlay(l) {
   y += 18;
 
   const pct = stats.gamesPlayed > 0 ? Math.round(stats.gamesWon / stats.gamesPlayed * 100) : 0;
-  const best = stats.bestTime ? `${Math.floor(stats.bestTime / 1000)}s` : '--';
+  const best = stats.bestTime ? formatTime(stats.bestTime) : '--';
 
   const rows2 = [
     ['Games Played', stats.gamesPlayed],
@@ -1121,8 +1310,8 @@ function overlayClickHandler(e) {
 
   // Win new game button
   if (state && state.won) {
-    const cx = l.w / 2;
-    if (inRect(x, y, cx - 50, l.h / 2 + 30, 100, 36)) {
+    const b = winButtonRect(l);
+    if (inRect(x, y, b.x, b.y, b.w, b.h)) {
       newGame(false);
       markDirty();
       e.stopPropagation();

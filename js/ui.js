@@ -1,4 +1,6 @@
 // ui.js — HTML DOM manipulation and Event Binding
+import { formatTime } from './utils.js';
+
 export const UI = {
   elements: {},
   handlers: {},
@@ -17,6 +19,7 @@ export const UI = {
       iconCollapse: document.getElementById('icon-collapse'),
       iconHints: document.getElementById('icon-hints'),
       undoBtn: document.getElementById('btn-undo-floating'),
+      hintBtn: document.getElementById('btn-hint-floating'),
       undoMenu: document.getElementById('undo-menu'),
       undoList: document.getElementById('undo-list'),
       timeDisplay: document.getElementById('time-display'),
@@ -82,6 +85,32 @@ export const UI = {
 
     this.elements.btnCloseHelp?.addEventListener('click', () => {
       this.elements.helpModal?.classList.add('hidden');
+    });
+
+    this.elements.hintBtn?.addEventListener('click', () => {
+      this.handlers.onHint?.();
+    });
+
+    // Keyboard: Z undoes (with or without Ctrl/Cmd), H hints, Esc closes
+    // whatever is open. Typing in the seed box is left alone.
+    window.addEventListener('keydown', (e) => {
+      const t = e.target;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+      if (e.key === 'Escape') {
+        this.closeDropdown();
+        this.elements.undoMenu?.classList.add('hidden');
+        this.elements.helpModal?.classList.add('hidden');
+        this.handlers.onEscape?.();
+        return;
+      }
+      if (e.altKey) return;
+      const k = e.key.toLowerCase();
+      if (k === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        this.handlers.onUndo();
+      } else if (k === 'h' && !e.ctrlKey && !e.metaKey) {
+        this.handlers.onHint?.();
+      }
     });
 
     // Undo Floating UI Logic
@@ -173,9 +202,7 @@ export const UI = {
 
   updateHeader(elapsedMs, moves) {
     if (this.elements.timeDisplay) {
-      const secs = Math.floor(elapsedMs / 1000);
-      const mins = Math.floor(secs / 60);
-      this.elements.timeDisplay.innerText = `${mins}:${(secs % 60).toString().padStart(2, '0')}`;
+      this.elements.timeDisplay.innerText = formatTime(elapsedMs);
     }
     if (this.elements.movesDisplay) {
       this.elements.movesDisplay.innerText = moves;

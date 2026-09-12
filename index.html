@@ -81,8 +81,8 @@
           <span class="dropdown-caret">▼</span>
         </h1>
       </div>
-      <div id="header-stats" style="display: flex; align-items: center; gap: 12px;">
-        <button id="btn-help" style="background: none; border: none; cursor: pointer; font-size: 1rem; opacity: 0.8; transition: opacity 0.2s; pointer-events: auto;" title="How to Play" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.8'">💡</button>
+      <div id="header-stats">
+        <button id="btn-help" class="header-icon-btn" title="How to Play" aria-label="How to Play">?</button>
         <div>
           ♣ <span id="time-display">0:00</span>  ·  <span id="moves-display">0</span> moves
         </div>
@@ -118,13 +118,13 @@
             <span class="icon" id="icon-collapse">✓</span> Collapse Runs
           </button>
           <button id="btn-toggle-hints" class="dropdown-btn">
-            <span class="icon" id="icon-hints">✓</span> Hint Indicators
+            <span class="icon" id="icon-hints">✓</span> Drop Highlights
           </button>
         </div>
       </div>
     </div>
 
-    <div id="undo-wrapper">
+    <div id="undo-wrapper" class="corner-wrapper">
       <div id="undo-menu" class="undo-dropdown hidden">
         <div class="dropdown-section">
           <h4 class="dropdown-header">HISTORY</h4>
@@ -133,8 +133,14 @@
           </div>
         </div>
       </div>
-      <button id="btn-undo-floating" class="floating-btn">
+      <button id="btn-undo-floating" class="floating-btn" title="Undo (Z) — hold for history" aria-label="Undo. Hold for move history.">
         <span class="icon">↶</span>
+      </button>
+    </div>
+
+    <div id="hint-wrapper" class="corner-wrapper">
+      <button id="btn-hint-floating" class="floating-btn" title="Hint (H)" aria-label="Show a hint">
+        <span class="icon">💡</span>
       </button>
     </div>
     
@@ -156,7 +162,7 @@
   </div>
 
   <canvas id="game"></canvas>
-  <script type="module" src="js/main.js?v=5"></script>
+  <script type="module" src="js/main.js?v=6"></script>
   <script>
   // Offline support (fleet SW standard — see sw.js's header). The loopback
   // guard keeps local-dev edits from being masked by stale cache, matching
